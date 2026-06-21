@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 interface MongooseCache {
   conn: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;
+  seeded?: boolean;
 }
 
 declare global {
@@ -10,7 +11,7 @@ declare global {
   var mongoose: MongooseCache;
 }
 
-const cached: MongooseCache = global.mongoose || { conn: null, promise: null };
+const cached: MongooseCache = global.mongoose || { conn: null, promise: null, seeded: false };
 
 if (!global.mongoose) {
   global.mongoose = cached;
@@ -23,7 +24,14 @@ async function connectDB(): Promise<typeof mongoose> {
     throw new Error("Please define MONGODB_URI in your environment variables.");
   }
 
-  if (cached.conn) return cached.conn;
+  if (cached.conn) {
+    // If connection is already open, make sure it is seeded before returning
+    if (!cached.seeded) {
+      cached.seeded = true;
+      seedAdminUser().catch((err) => console.error("Background seeding failed:", err));
+    }
+    return cached.conn;
+  }
 
   if (!cached.promise) {
     const opts = {
@@ -38,9 +46,13 @@ async function connectDB(): Promise<typeof mongoose> {
 
   try {
     cached.conn = await cached.promise;
-    await seedAdminUser();
+    if (!cached.seeded) {
+      cached.seeded = true;
+      await seedAdminUser();
+    }
   } catch (e) {
     cached.promise = null;
+    cached.seeded = false;
     throw e;
   }
 

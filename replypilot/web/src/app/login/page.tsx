@@ -16,9 +16,19 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const res = await signIn("credentials", { email, password, redirect: false });
-    if (res?.error) { setError("Invalid email or password"); setLoading(false); return; }
-    router.push("/dashboard");
+    try {
+      const res = await signIn("credentials", { email, password, redirect: false });
+      if (res?.error) {
+        setError(res.error === "CredentialsSignin" ? "Invalid email or password" : res.error);
+        setLoading(false);
+        return;
+      }
+      router.push("/dashboard");
+    } catch (err: any) {
+      console.error("Login client error:", err);
+      setError(err?.message || "An error occurred during sign in. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (
