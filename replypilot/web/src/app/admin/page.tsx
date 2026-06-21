@@ -23,6 +23,12 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
 
+  // Change Admin Password State
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState("");
+
   useEffect(() => {
     fetch("/api/admin/stats")
       .then((r) => r.json())
@@ -68,6 +74,38 @@ export default function AdminPage() {
     }
     setSavingSettings(false);
     setTimeout(() => setSaveStatus(""), 3000);
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 8) {
+      setPasswordStatus("❌ Password must be at least 8 characters long.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordStatus("❌ Passwords do not match.");
+      return;
+    }
+    setChangingPassword(true);
+    setPasswordStatus("");
+    try {
+      const res = await fetch("/api/admin/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPasswordStatus("✅ Password changed successfully!");
+        setNewPassword("");
+        setConfirmPassword("");
+      } else {
+        setPasswordStatus(`❌ ${data.error || "Failed to change password."}`);
+      }
+    } catch {
+      setPasswordStatus("❌ Error updating password.");
+    }
+    setChangingPassword(false);
+    setTimeout(() => setPasswordStatus(""), 4000);
   };
 
   const statCards = [
@@ -162,40 +200,71 @@ export default function AdminPage() {
 
         {/* System Settings Tab */}
         {tab === "systemSettings" && (
-          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>⚙️ System Settings</h2>
-            <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>Configure platform-wide OpenAI settings for the auto-responder.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28, alignItems: "start" }}>
+            {/* Left Column: Platform settings */}
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>⚙️ System Settings</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>Configure platform-wide OpenAI settings for the auto-responder.</p>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20, maxWidth: 600 }}>
-              {/* Model Dropdown */}
-              <div>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Platform OpenAI Model</label>
-                <select className="input-field" value={systemModel} onChange={(e) => setSystemModel(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }}>
-                  <option value="gpt-5.5">GPT-5.5 (New Class of Intelligence)</option>
-                  <option value="gpt-5.4">GPT-5.4 (Intelligence at Scale)</option>
-                  <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast & Cost-Efficient)</option>
-                  <option value="gpt-4o-mini">GPT-4o Mini (Fast & Cheap)</option>
-                  <option value="gpt-4o">GPT-4o (Premium)</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Legacy)</option>
-                  <option value="o1-mini">o1-mini (Reasoning)</option>
-                  <option value="o1-preview">o1-preview (Full Reasoning)</option>
-                </select>
-                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>This model is used system-wide for auto-replies when user accounts are configured to use the "System Key".</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
+                {/* Model Dropdown */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Platform OpenAI Model</label>
+                  <select className="input-field" value={systemModel} onChange={(e) => setSystemModel(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }}>
+                    <option value="gpt-5.5">GPT-5.5 (New Class of Intelligence)</option>
+                    <option value="gpt-5.4">GPT-5.4 (Intelligence at Scale)</option>
+                    <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast & Cost-Efficient)</option>
+                    <option value="gpt-4o-mini">GPT-4o Mini (Fast & Cheap)</option>
+                    <option value="gpt-4o">GPT-4o (Premium)</option>
+                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Legacy)</option>
+                    <option value="o1-mini">o1-mini (Reasoning)</option>
+                    <option value="o1-preview">o1-preview (Full Reasoning)</option>
+                  </select>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>This model is used system-wide for auto-replies when user accounts are configured to use the "System Key".</p>
+                </div>
+
+                {/* API Key Input */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Platform OpenAI API Key (Override)</label>
+                  <input className="input-field" type="password" placeholder="Leave empty to use .env key" value={systemApiKey} onChange={(e) => setSystemApiKey(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }} />
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Optional. If empty, the system will use the key configured in the server's `.env` environment file.</p>
+                </div>
+
+                {/* Save Status and Button */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12 }}>
+                  <button className="btn-brand" onClick={handleSaveSystemSettings} disabled={savingSettings}>
+                    {savingSettings ? "Saving Settings..." : "Save Settings"}
+                  </button>
+                  {saveStatus && <span style={{ fontSize: 13, fontWeight: 600 }}>{saveStatus}</span>}
+                </div>
               </div>
+            </div>
 
-              {/* API Key Input */}
-              <div>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Platform OpenAI API Key (Override)</label>
-                <input className="input-field" type="password" placeholder="Leave empty to use .env key" value={systemApiKey} onChange={(e) => setSystemApiKey(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }} />
-                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Optional. If empty, the system will use the key configured in the server's `.env` environment file.</p>
-              </div>
+            {/* Right Column: Change Admin Password */}
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>🔑 Change Password</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>Update your admin account login password.</p>
 
-              {/* Save Status and Button */}
-              <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12 }}>
-                <button className="btn-brand" onClick={handleSaveSystemSettings} disabled={savingSettings}>
-                  {savingSettings ? "Saving Settings..." : "Save Settings"}
-                </button>
-                {saveStatus && <span style={{ fontSize: 13, fontWeight: 600 }}>{saveStatus}</span>}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
+                {/* New Password */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>New Password</label>
+                  <input className="input-field" type="password" placeholder="Min. 8 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }} />
+                </div>
+
+                {/* Confirm Password */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Confirm Password</label>
+                  <input className="input-field" type="password" placeholder="Repeat new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }} />
+                </div>
+
+                {/* Action button */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12 }}>
+                  <button className="btn-brand" onClick={handleChangePassword} disabled={changingPassword}>
+                    {changingPassword ? "Updating Password..." : "Update Password"}
+                  </button>
+                  {passwordStatus && <span style={{ fontSize: 13, fontWeight: 600 }}>{passwordStatus}</span>}
+                </div>
               </div>
             </div>
           </div>

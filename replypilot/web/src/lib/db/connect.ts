@@ -38,6 +38,7 @@ async function connectDB(): Promise<typeof mongoose> {
 
   try {
     cached.conn = await cached.promise;
+    await seedAdminUser();
   } catch (e) {
     cached.promise = null;
     throw e;
@@ -46,4 +47,43 @@ async function connectDB(): Promise<typeof mongoose> {
   return cached.conn;
 }
 
+async function seedAdminUser() {
+  try {
+    const { User } = await import("@/models/User");
+    const { Settings } = await import("@/models/Settings");
+    const bcrypt = await import("bcryptjs");
+
+    const email = "vvishwas221@gmail.com";
+    const existing = await User.findOne({ email });
+    if (!existing) {
+      const hashedPassword = await bcrypt.hash("Vish@2503@", 12);
+      const admin = await User.create({
+        name: "Admin",
+        email,
+        password: hashedPassword,
+        role: "admin",
+        isActive: true,
+        onboardingCompleted: true,
+      });
+
+      // Create default settings for admin
+      await Settings.create({
+        user: admin._id,
+        businessHours: {
+          schedule: Array.from({ length: 7 }, (_, i) => ({
+            day: i,
+            isOpen: i > 0 && i < 6,
+            openTime: "09:00",
+            closeTime: "18:00",
+          })),
+        },
+      });
+      console.log("Admin user seeded successfully.");
+    }
+  } catch (err) {
+    console.error("Admin seeding failed:", err);
+  }
+}
+
 export default connectDB;
+
