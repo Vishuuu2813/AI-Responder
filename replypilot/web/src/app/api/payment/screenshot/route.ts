@@ -122,13 +122,24 @@ Rules:
       });
     }
 
-    // ─── Step 3: Incomplete screenshot ───────────────────────────────────────
-    if (!extracted.isComplete || !extracted.transactionId || !extracted.amount) {
-      const reason = extracted.incompleteReason || "Transaction ID ya amount nahi dikh raha";
+    // ─── Step 3: Handle missing TX ID — generate one from timestamp ──────────
+    // If screenshot is incomplete but has amount, generate a TX ID from phone + timestamp
+    if (!extracted.transactionId && extracted.amount) {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const generatedTxId = `TXN-${(contactPhone || "UNKNOWN").replace(/\D/g, "").slice(-6)}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      extracted.transactionId = generatedTxId;
+      extracted.isComplete = true; // treat as complete since we have amount
+    }
+
+    // ─── Step 3b: Incomplete screenshot ──────────────────────────────────────
+    if (!extracted.isComplete || !extracted.amount) {
+      const reason = extracted.incompleteReason || "Amount ya payment details clearly nahi dikh rahe";
       return NextResponse.json({
         verified: false,
         action: "incomplete",
-        reply: `📸 *Screenshot incomplete hai!*\n\n${reason}\n\nPlease *pura screenshot* bhejo jisme yeh clearly dike:\n✅ Transaction ID\n✅ Amount\n✅ Recipient name\n✅ Date & Time\n\nBina complete screenshot ke points add nahi ho sakte. 🙏`,
+        reply: `📸 *Screenshot incomplete hai!*\n\n${reason}\n\nPlease *pura screenshot* bhejo jisme yeh clearly dike:\n✅ Amount
+✅ Recipient name\n✅ Date & Time\n\nBina complete screenshot ke points add nahi ho sakte. 🙏`,
       });
     }
 
@@ -192,23 +203,33 @@ Rules:
     });
 
     if (existingRecord) {
+      // Format the original submission date/time
+      const origDate = new Date(existingRecord.createdAt);
+      const origDateStr = origDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+      const origTimeStr = origDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+
       return NextResponse.json({
         verified: false,
         action: "duplicate",
-        reply: `⚠️ *Yeh Transaction ID pehle se use ho chuki hai!*\n\n*Transaction ID:* ${extracted.transactionId}\n\nIs screenshot se points pehle hi add ho chuke hain.\n\nKoi aur help chahiye toh batao. 😊`,
+        reply: `⚠️ *Yeh screenshot already submit ho chuka hai!*\n\n*Transaction ID:* ${extracted.transactionId}\n*Pehle submit hua:* ${origDateStr} ko ${origTimeStr}\n\nPlease check karo — yeh payment already add ho chuki hai.\n\nKoi aur issue ho toh support se contact karo. 😊`,
       });
     }
 
     // ─── Step 7: All checks passed — Save and return success ──────────────────
+    const paymentDateStr = `${extracted.paymentDate || ""} ${extracted.paymentTime || ""}`.trim();
+    const submittedAt = new Date();
+    const submittedDateStr = submittedAt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+    const submittedTimeStr = submittedAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+
     await PaymentRecord.create({
       user: user._id,
-      contactPhone,
+      contactPhone,          // WhatsApp number — stored for admin view
       contactName: contactName || "",
       transactionId: extracted.transactionId,
       amount: extracted.amount || 0,
       paymentMethod: extracted.paymentMethod || "",
       recipientName: extracted.recipientName || "",
-      paymentDate: `${extracted.paymentDate || ""} ${extracted.paymentTime || ""}`.trim(),
+      paymentDate: paymentDateStr,
       status: "verified",
       rawExtractedData: JSON.stringify(extracted),
     });
@@ -223,8 +244,9 @@ Rules:
         paymentMethod: extracted.paymentMethod,
         paymentDate: extracted.paymentDate,
         paymentTime: extracted.paymentTime,
+        contactPhone,
       },
-      reply: `✅ *Payment Verified!*\n\n*Amount:* ₹${extracted.amount}\n*Method:* ${extracted.paymentMethod || "UPI"}\n*Recipient:* ${extracted.recipientName}\n*Transaction ID:* ${extracted.transactionId}\n*Date:* ${extracted.paymentDate || ""} ${extracted.paymentTime || ""}\n\nAapke *₹${extracted.amount} points* add kar diye jayenge. Admin se confirm hone mein thoda time lagega. 😊`,
+      reply: `✅ *Payment Verified!*\n\n💰 *Amount:* ₹${extracted.amount}\n📱 *Method:* ${extracted.paymentMethod || "UPI"}\n👤 *Recipient:* ${extracted.recipientName}\n🔢 *Transaction ID:* ${extracted.transactionId}\n📅 *Payment Date:* ${paymentDateStr || "—"}\n⏰ *Submitted:* ${submittedDateStr} ${submittedTimeStr}\n\n✅ Aapki payment record ho gayi hai. Points jald add kar diye jayenge! 😊`
     });
   } catch (error) {
     console.error("Payment screenshot error:", error);
