@@ -160,7 +160,6 @@ function buildSystemPrompt(
     `- Minimum Withdrawal: ₹${aiSettings.minWithdraw || 200}`,
     `- Maximum Withdrawal: ₹${aiSettings.maxWithdraw || 50000}`,
     `- Withdrawal Hours: ${aiSettings.withdrawOpenTime || "10:00 AM"} to ${aiSettings.withdrawCloseTime || "04:00 PM"} (Monday to Saturday)`,
-    `- Payment Scanner QR Code Link: ${payUrl || "Link not uploaded yet"}`,
     "\n## LIVE GAME CHARTS DIRECTORY",
     "Here is the database of direct Jodi and Panel chart links for all our games. If a user asks for a chart or link, refer directly to this list and output only the relevant URL:",
     "- **KALYAN**: Jodi: https://mainmumbaistarline.com/chart/jodi/kalyan | Panel: https://mainmumbaistarline.com/chart/panel/kalyan",
@@ -192,9 +191,8 @@ function buildSystemPrompt(
        - If they explicitly reply that they want the NEW app, then provide the New App Download Link.
        - If they explicitly reply that they want the OLD app, then provide the Old App Download Link.`,
     `- If the user asks about depositing, adding money, or adding points ("paisa add karna", "points add", "recharge"):
-       - You must inform them that they can scan our QR Code Scanner to make the payment: "आप हमारे क्यूआर कोड स्कैनर को स्कैन करके भी पेमेंट कर सकते हैं।"
-       - Put the Payment Scanner QR Code Link on a line by itself at the end: ${payUrl || "No Scanner QR uploaded yet. Please ask support."}
-       - Provide the deposit rules: Minimum deposit is ₹${aiSettings.minDeposit || 100}. Once done, send a screenshot to support.`,
+       - Tell them the deposit rules: Minimum deposit is ₹${aiSettings.minDeposit || 100}.
+       - Tell them to contact our support team at +${aiSettings.whatsappSupport || "917339987622"} to get the payment details/UPI ID to add points. Do NOT offer or send any payment scanner or QR Code links.`,
     `- If the user asks for the website, give the Website Link.`,
     `- If the user asks for a chart or chart link (e.g. "Kalyan chart", "Milan chart", "chart link", "chart chahiye"):
        - **CRITICAL**: Do NOT send the market timings, open times, close times, or game rates.
