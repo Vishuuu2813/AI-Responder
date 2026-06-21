@@ -1,5 +1,4 @@
 import NextAuth from "next-auth";
-import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import connectDB from "@/lib/db/connect";
 import { User } from "@/models/User";
@@ -7,10 +6,6 @@ import bcrypt from "bcryptjs";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    }),
     Credentials({
       name: "credentials",
       credentials: {
@@ -22,7 +17,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         await connectDB();
 
-        const user = await User.findOne({ email: credentials.email }).select(
+        const user = await User.findOne({ email: (credentials.email as string).toLowerCase() }).select(
           "+password"
         );
 
@@ -46,27 +41,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    async signIn({ user, account }) {
-      await connectDB();
-
-      if (account?.provider === "google") {
-        const existingUser = await User.findOne({ email: user.email });
-
-        if (!existingUser) {
-          await User.create({
-            name: user.name ?? "User",
-            email: user.email ?? "",
-            image: user.image ?? undefined,
-            emailVerified: new Date(),
-          });
-        } else {
-          await User.updateOne(
-            { email: user.email },
-            { lastSeen: new Date(), image: user.image ?? undefined }
-          );
-        }
-      }
-
+    async signIn() {
       return true;
     },
 
