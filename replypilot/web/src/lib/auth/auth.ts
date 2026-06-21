@@ -70,4 +70,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     error: "/login",
   },
   session: { strategy: "jwt" },
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "7bc8cb9a7146522bb3d81b899aef34f1",
+  trustHost: true,
 });
