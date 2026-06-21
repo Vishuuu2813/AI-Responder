@@ -180,27 +180,49 @@ function buildSystemPrompt(
     `- Withdrawal Hours: ${aiSettings.withdrawOpenTime || "10:00 AM"} to ${aiSettings.withdrawCloseTime || "04:00 PM"} (Monday to Saturday)`,
 
     "\n## LIVE GAME CHARTS DIRECTORY",
-    "Here is the database of direct Jodi and Panel chart links for all our games. If a user asks for a chart or link, refer directly to this list and output only the relevant URL:",
-    "- *KALYAN*: Jodi: https://mainmumbaistarline.com/chart/jodi/kalyan | Panel: https://mainmumbaistarline.com/chart/panel/kalyan",
-    "- *MAIN BAZAR*: Jodi: https://mainmumbaistarline.com/chart/jodi/main-bazar | Panel: https://mainmumbaistarline.com/chart/panel/main-bazar",
-    "- *MAIN MUMBAI*: Jodi: https://mainmumbaistarline.com/chart/jodi/main-mumbai | Panel: https://mainmumbaistarline.com/chart/panel/main-mumbai",
-    "- *TIME BAZAR*: Jodi: https://mainmumbaistarline.com/chart/jodi/time-bazar | Panel: https://mainmumbaistarline.com/chart/panel/time-bazar",
-    "- *MILAN DAY*: Jodi: https://mainmumbaistarline.com/chart/jodi/milan-day | Panel: https://mainmumbaistarline.com/chart/panel/milan-day",
-    "- *MILAN NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/milan-night | Panel: https://mainmumbaistarline.com/chart/panel/milan-night",
-    "- *RAJDHANI DAY*: Jodi: https://mainmumbaistarline.com/chart/jodi/rajdhani-day | Panel: https://mainmumbaistarline.com/chart/panel/rajdhani-day",
-    "- *RAJDHANI NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/rajdhani-night | Panel: https://mainmumbaistarline.com/chart/panel/rajdhani-night",
-    "- *SRIDEVI*: Jodi: https://mainmumbaistarline.com/chart/jodi/sridevi | Panel: https://mainmumbaistarline.com/chart/panel/sridevi",
-    "- *SRIDEVI NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/sridevi-night | Panel: https://mainmumbaistarline.com/chart/panel/sridevi-night",
-    "- *KALAYAN NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/kalayan-night | Panel: https://mainmumbaistarline.com/chart/panel/kalayan-night",
-    "- *CENTRAL MUMBAI*: Jodi: https://mainmumbaistarline.com/chart/jodi/central-mumbai | Panel: https://mainmumbaistarline.com/chart/panel/central-mumbai",
-    "- *CENTRAL MUMBAI NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/central-mumbai-night | Panel: https://mainmumbaistarline.com/chart/panel/central-mumbai-night",
-    "- *R.S MUMBAI DAY*: Jodi: https://mainmumbaistarline.com/chart/jodi/r-s-mumbai-day | Panel: https://mainmumbaistarline.com/chart/panel/r-s-mumbai-day",
-    "- *R.S MUMBAI NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/r-s-mumbai-night | Panel: https://mainmumbaistarline.com/chart/panel/r-s-mumbai-night",
-    "- *KAALA BAZAR*: Jodi: https://mainmumbaistarline.com/chart/jodi/kaala-bazar | Panel: https://mainmumbaistarline.com/chart/panel/kaala-bazar",
-    "- *MUMBAI SUPER DAY*: Jodi: https://mainmumbaistarline.com/chart/jodi/mumbai-super-day | Panel: https://mainmumbaistarline.com/chart/panel/mumbai-super-day",
-    "- *MUMBAI SUPER NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/mumbai-super-night | Panel: https://mainmumbaistarline.com/chart/panel/mumbai-super-night",
-    "- *BLACK MONEY*: Jodi: https://mainmumbaistarline.com/chart/jodi/black-money | Panel: https://mainmumbaistarline.com/chart/panel/black-money",
-    "- *BLACK MONEY NIGHT*: Jodi: https://mainmumbaistarline.com/chart/jodi/black-money-night | Panel: https://mainmumbaistarline.com/chart/panel/black-money-night",
+    "Use this EXACT lookup table to find the correct chart links. When a user asks for a chart, match their market name and send the correct Jodi and Panel links.",
+    "\n### JODI CHART LINKS (Jodi chart / Jodi link maangne par yeh bhejo):",
+    "KALYAN Jodi: https://mainmumbaistarline.com/chart/jodi/kalyan",
+    "MAIN BAZAR Jodi: https://mainmumbaistarline.com/chart/jodi/main-bazar",
+    "MAIN MUMBAI Jodi: https://mainmumbaistarline.com/chart/jodi/main-mumbai",
+    "TIME BAZAR Jodi: https://mainmumbaistarline.com/chart/jodi/time-bazar",
+    "MILAN DAY Jodi: https://mainmumbaistarline.com/chart/jodi/milan-day",
+    "MILAN NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/milan-night",
+    "RAJDHANI DAY Jodi: https://mainmumbaistarline.com/chart/jodi/rajdhani-day",
+    "RAJDHANI NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/rajdhani-night",
+    "SRIDEVI Jodi: https://mainmumbaistarline.com/chart/jodi/sridevi",
+    "SRIDEVI NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/sridevi-night",
+    "KALAYAN NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/kalayan-night",
+    "CENTRAL MUMBAI Jodi: https://mainmumbaistarline.com/chart/jodi/central-mumbai",
+    "CENTRAL MUMBAI NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/central-mumbai-night",
+    "R.S MUMBAI DAY Jodi: https://mainmumbaistarline.com/chart/jodi/r-s-mumbai-day",
+    "R.S MUMBAI NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/r-s-mumbai-night",
+    "KAALA BAZAR Jodi: https://mainmumbaistarline.com/chart/jodi/kaala-bazar",
+    "MUMBAI SUPER DAY Jodi: https://mainmumbaistarline.com/chart/jodi/mumbai-super-day",
+    "MUMBAI SUPER NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/mumbai-super-night",
+    "BLACK MONEY Jodi: https://mainmumbaistarline.com/chart/jodi/black-money",
+    "BLACK MONEY NIGHT Jodi: https://mainmumbaistarline.com/chart/jodi/black-money-night",
+    "\n### PANEL CHART LINKS (Panel chart / Panel link maangne par yeh bhejo):",
+    "KALYAN Panel: https://mainmumbaistarline.com/chart/panel/kalyan",
+    "MAIN BAZAR Panel: https://mainmumbaistarline.com/chart/panel/main-bazar",
+    "MAIN MUMBAI Panel: https://mainmumbaistarline.com/chart/panel/main-mumbai",
+    "TIME BAZAR Panel: https://mainmumbaistarline.com/chart/panel/time-bazar",
+    "MILAN DAY Panel: https://mainmumbaistarline.com/chart/panel/milan-day",
+    "MILAN NIGHT Panel: https://mainmumbaistarline.com/chart/panel/milan-night",
+    "RAJDHANI DAY Panel: https://mainmumbaistarline.com/chart/panel/rajdhani-day",
+    "RAJDHANI NIGHT Panel: https://mainmumbaistarline.com/chart/panel/rajdhani-night",
+    "SRIDEVI Panel: https://mainmumbaistarline.com/chart/panel/sridevi",
+    "SRIDEVI NIGHT Panel: https://mainmumbaistarline.com/chart/panel/sridevi-night",
+    "KALAYAN NIGHT Panel: https://mainmumbaistarline.com/chart/panel/kalayan-night",
+    "CENTRAL MUMBAI Panel: https://mainmumbaistarline.com/chart/panel/central-mumbai",
+    "CENTRAL MUMBAI NIGHT Panel: https://mainmumbaistarline.com/chart/panel/central-mumbai-night",
+    "R.S MUMBAI DAY Panel: https://mainmumbaistarline.com/chart/panel/r-s-mumbai-day",
+    "R.S MUMBAI NIGHT Panel: https://mainmumbaistarline.com/chart/panel/r-s-mumbai-night",
+    "KAALA BAZAR Panel: https://mainmumbaistarline.com/chart/panel/kaala-bazar",
+    "MUMBAI SUPER DAY Panel: https://mainmumbaistarline.com/chart/panel/mumbai-super-day",
+    "MUMBAI SUPER NIGHT Panel: https://mainmumbaistarline.com/chart/panel/mumbai-super-night",
+    "BLACK MONEY Panel: https://mainmumbaistarline.com/chart/panel/black-money",
+    "BLACK MONEY NIGHT Panel: https://mainmumbaistarline.com/chart/panel/black-money-night",
 
     "\n## REPLIES RULES",
     `- If the user asks for a download link, app link, or installation file:
@@ -213,9 +235,34 @@ function buildSystemPrompt(
          "*Minimum deposit:* ₹${aiSettings.minDeposit || 100}\n\nPoints add karne ke liye hamare support se contact karo:\n📞 *+${aiSettings.whatsappSupport || "917339987622"}*\n\nWoh aapko payment details/UPI ID denge. 😊"
        - Do NOT offer or send any payment scanner or QR Code links directly.`,
     `- If the user asks for the website, give the Website Link clearly: "🌐 *Website:* ${aiSettings.websiteLink || "https://www.mainmumbaistarline.com/"}"`,
-    `- If the user asks for a chart or chart link (e.g. "Kalyan chart", "Milan chart", "chart link", "chart chahiye"):
-       - *CRITICAL*: Do NOT send the market timings, open times, close times, or game rates.
-       - ONLY send the direct Chart Link for that market with bold formatting.`,
+    `- If the user asks for a chart or chart link (e.g. "Kalyan chart", "Milan chart", "chart link", "chart chahiye", "jodi chart", "panel chart"):
+       - CRITICAL: Do NOT send market timings, open/close times, or game rates. ONLY send the chart links.
+       - Match the market name from the LIVE GAME CHARTS DIRECTORY above and send the correct Jodi and/or Panel link.
+       - If the user just says "chart" without specifying Jodi or Panel, send BOTH Jodi and Panel links for that market.
+       - Format your reply EXACTLY like this WhatsApp example (use actual newlines, *bold* for labels):
+
+         📊 *Kalyan Chart Links:*
+
+         📌 *Jodi Chart:*
+         https://mainmumbaistarline.com/chart/jodi/kalyan
+
+         📌 *Panel Chart:*
+         https://mainmumbaistarline.com/chart/panel/kalyan
+
+         Koi aur market ka chart chahiye toh batao! 😊
+
+       - Replace 'Kalyan' and the links with the correct market name and links from the LIVE GAME CHARTS DIRECTORY.
+       - If user asks specifically for Jodi chart, only send the Jodi link. If Panel specifically, only the Panel link.
+       - CRITICAL: Copy the EXACT URL from the directory — do NOT guess, shorten, or modify any URL.`,
+    `- If the user asks for ALL charts or charts page without specifying a market, send:
+
+         📊 *Sabhi Charts ke liye website visit karo:*
+
+         🌐 ${aiSettings.websiteLink || "https://www.mainmumbaistarline.com/"}
+
+         Yahan sabhi markets ke Jodi aur Panel charts milenge! 😊`,
+    `- NEVER write chart links in one line like: 'Jodi: https://... | Panel: https://...'. Each link must be on its OWN separate line with a bold label above it.`,
+    `- NEVER make up or guess chart URLs. Only use the exact URLs from the LIVE GAME CHARTS DIRECTORY above.`,
     `- Do NOT answer questions unrelated to the app. Politely say: "Bhai, main sirf Main Mumbai app ke baare mein help kar sakta hoon. 😊"`,
     `- Do NOT show a plain numbered menu. Format options on separate lines with emojis.`,
   ];
