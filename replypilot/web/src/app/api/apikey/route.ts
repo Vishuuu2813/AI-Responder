@@ -8,18 +8,19 @@ import crypto from "crypto";
 export async function GET() {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const email = session?.user?.email;
+    if (!email) {
+      return NextResponse.json({ error: "Unauthorized: No email in session" }, { status: 401 });
     }
 
     await connectDB();
-    const user = await User.findOne({ email: session.user.email.toLowerCase() });
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
     return NextResponse.json({ apiKey: user.apiKey || null });
-  } catch (err) {
+  } catch (err: any) {
     console.error("GET apikey error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: "Server error", details: err?.message || err?.toString() }, { status: 500 });
   }
 }
 
@@ -27,12 +28,13 @@ export async function GET() {
 export async function POST() {
   try {
     const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const email = session?.user?.email;
+    if (!email) {
+      return NextResponse.json({ error: "Unauthorized: No email in session" }, { status: 401 });
     }
 
     await connectDB();
-    const user = await User.findOne({ email: session.user.email.toLowerCase() });
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
     const newKey = `rp_${crypto.randomBytes(24).toString("hex")}`;
@@ -40,8 +42,8 @@ export async function POST() {
     await user.save();
 
     return NextResponse.json({ apiKey: newKey });
-  } catch (err) {
+  } catch (err: any) {
     console.error("POST apikey error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: "Server error", details: err?.message || err?.toString() }, { status: 500 });
   }
 }
