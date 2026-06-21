@@ -1,33 +1,75 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth/auth";
+import connectDB from "@/lib/db/connect";
+import { User } from "@/models/User";
+import { Settings } from "@/models/Settings";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const result: any = {
-    step1_auth: "pending",
-    step2_db: "pending",
+    authStatus: "pending",
+    dbStatus: "pending",
+    userQueryStatus: "pending",
+    settingsQueryStatus: "pending",
+    session: null,
     errors: {}
   };
 
-  // 1. Try to run auth()
+  // 1. Check auth()
   try {
-    const { auth } = await import("@/lib/auth/auth");
     const session = await auth();
-    result.step1_auth = "success";
+    result.authStatus = "success";
     result.session = session;
   } catch (err: any) {
-    result.step1_auth = "failed";
-    result.errors.auth = err?.message || err?.toString() || "Unknown error";
-    if (err?.stack) result.errors.authStack = err.stack;
+    result.authStatus = "failed";
+    result.errors.auth = err?.message || err?.toString();
+    result.errors.authStack = err?.stack;
   }
 
-  // 2. Try to run connectDB()
+  // 2. Check DB connection
   try {
-    const connectDB = (await import("@/lib/db/connect")).default;
     await connectDB();
-    result.step2_db = "success";
+    result.dbStatus = "success";
   } catch (err: any) {
-    result.step2_db = "failed";
-    result.errors.db = err?.message || err?.toString() || "Unknown error";
-    if (err?.stack) result.errors.dbStack = err.stack;
+    result.dbStatus = "failed";
+    result.errors.db = err?.message || err?.toString();
+    result.errors.dbStack = err?.stack;
+  }
+
+  // 3. Check User model query
+  try {
+    if (result.dbStatus === "success") {
+      const userCount = await User.countDocuments();
+      result.userQueryStatus = `success (count: ${userCount})`;
+      
+      // If we have a session, let's try querying the specific user
+      if (result.session?.user?.email) {
+        const testUser = await User.findOne({ email: result.session.user.email.toLowerCase() });
+        result.testUserFound = !!testUser;
+        result.userId = testUser?._id?.toString() || null;
+      }
+    } else {
+      result.userQueryStatus = "skipped (db failed)";
+    }
+  } catch (err: any) {
+    result.userQueryStatus = "failed";
+    result.errors.userQuery = err?.message || err?.toString();
+    result.errors.userQueryStack = err?.stack;
+  }
+
+  // 4. Check Settings model query
+  try {
+    if (result.dbStatus === "success") {
+      const settingsCount = await Settings.countDocuments();
+      result.settingsQueryStatus = `success (count: ${settingsCount})`;
+    } else {
+      result.settingsQueryStatus = "skipped (db failed)";
+    }
+  } catch (err: any) {
+    result.settingsQueryStatus = "failed";
+    result.errors.settingsQuery = err?.message || err?.toString();
+    result.errors.settingsQueryStack = err?.stack;
   }
 
   return NextResponse.json(result);
