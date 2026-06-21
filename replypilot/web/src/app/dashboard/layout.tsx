@@ -11,7 +11,6 @@ const navItems = [
   { href: "/dashboard/ai-settings", icon: "🤖", label: "AI Settings" },
   { href: "/dashboard/contacts", icon: "👥", label: "Contacts" },
   { href: "/dashboard/analytics", icon: "📈", label: "Analytics" },
-  { href: "/dashboard/billing", icon: "💳", label: "Billing" },
   { href: "/dashboard/settings", icon: "⚙️", label: "Settings" },
 ];
 
