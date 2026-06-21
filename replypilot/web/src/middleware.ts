@@ -1,33 +1,27 @@
+import { auth } from "@/lib/auth/auth";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
 
-export async function middleware(req: NextRequest) {
+export default auth((req) => {
   const { pathname } = req.nextUrl;
+  const isLoggedIn = !!req.auth;
+  const userRole = req.auth?.user?.role as string | undefined;
 
-  const token = await getToken({
-    req,
-    secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET,
-  });
-
-  // Protect dashboard routes
+  // Protect dashboard and admin routes
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/admin")) {
-    if (!token) {
-      return NextResponse.redirect(new URL("/login", req.url));
+    if (!isLoggedIn) {
+      return NextResponse.redirect(new URL("/login", req.nextUrl));
     }
     // Admin only routes
-    if (pathname.startsWith("/admin") && token.role !== "admin") {
-      return NextResponse.redirect(new URL("/dashboard", req.url));
+    if (pathname.startsWith("/admin") && userRole !== "admin") {
+      return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
     }
   }
 
   // Redirect logged-in users away from auth pages
-  if ((pathname === "/login" || pathname === "/register") && token) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+  if ((pathname === "/login" || pathname === "/register") && isLoggedIn) {
+    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
-
-  return NextResponse.next();
-}
+});
 
 export const config = {
   matcher: ["/dashboard/:path*", "/admin/:path*", "/login", "/register"],
