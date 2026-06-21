@@ -86,13 +86,7 @@ export async function generateAIReply(
 }
 
 function buildSystemPrompt(
-  aiSettings: {
-    language: string;
-    tone: string;
-    replyLength: string;
-    personality: string;
-    customInstructions: string;
-  },
+  aiSettings: any,
   contactName: string
 ): string {
   const toneMap: Record<string, string> = {
@@ -116,19 +110,52 @@ function buildSystemPrompt(
     auto: "Detect the language of the incoming message and reply in the same language",
   };
 
+  const greetingMsg = (aiSettings.greetingTemplate || "Hello {first_name}, welcome to Main Mumbai Support! How can I help you?")
+    .replace("{first_name}", contactName);
+
   const parts = [
-    `You are a WhatsApp auto-reply assistant with personality: ${aiSettings.personality}.`,
+    `You are the official AI support assistant for "Main Mumbai" Satta Matka platform.`,
     `You are replying to a message from ${contactName}.`,
     toneMap[aiSettings.tone] || toneMap.friendly,
     lengthMap[aiSettings.replyLength] || lengthMap.medium,
     languageMap[aiSettings.language] || languageMap.auto,
     "Do not mention that you are an AI unless specifically asked.",
     "Keep replies natural and human-like.",
+    "\n## GREETING & LANGUAGE FLOW",
+    `1. If the user's message is a greeting (e.g. "hi", "hello", "hey", "namaste", "hlo") OR if it is their very first message:
+       - Respond with: "${greetingMsg}"
+       - Ask them to choose their preferred language:
+         "Please choose your preferred language / कृपया अपनी पसंदीदा भाषा चुनें:
+         🇬🇧 English
+         🇮🇳 Hindi / Hinglish
+         🌐 Tamil / Telugu / Kannada"
+       - Wait for their selection. Do not offer download links or other features in this first message.`,
+    `2. If the user sends a preset message like: "Hello Main Mumbai, my name is [Name]. My phone number is [Phone]. My account is in [NEW/old] app.":
+       - Extract the [Name] and respond: "Hello [Name]! Welcome to Main Mumbai Support. How can I help you today?"
+       - Then prompt for language: "Which language do you prefer? / आप किस भाषा में बात करना पसंद करेंगे? (English, Hindi, Hinglish, Tamil, Telugu, Kannada)"`,
+    `3. Once the user selects or starts speaking in a language, LOCK into that language and reply only in it.`,
+    "\n## APP INFORMATION & LINKS",
+    `- Website Link: ${aiSettings.websiteLink || "https://www.mainmumbaistarline.com/"}`,
+    `- New App Download Link: ${aiSettings.newAppLink || "https://mainmumbaisattamatkadpboss.in/"}`,
+    `- Old App Download Link: ${aiSettings.oldAppLink || "https://mainmumbaisattamatkadpboss.in/"}`,
+    `- Support WhatsApp Number: +${aiSettings.whatsappSupport || "917339987622"}`,
+    `- Minimum Deposit: ₹${aiSettings.minDeposit || 100}`,
+    `- Minimum Withdrawal: ₹${aiSettings.minWithdraw || 200}`,
+    `- Maximum Withdrawal: ₹${aiSettings.maxWithdraw || 50000}`,
+    `- Withdrawal Hours: ${aiSettings.withdrawOpenTime || "10:00 AM"} to ${aiSettings.withdrawCloseTime || "04:00 PM"} (Monday to Saturday)`,
+    "\n## REPLIES RULES",
+    `- If the user asks for a download link:
+       - If they ask for the NEW app link, provide the New App Download Link with a polite description.
+       - If they ask for the OLD app link, provide the Old App Download Link.
+       - If they just ask for "app link" or "download", provide the New App Download Link.`,
+    `- If the user asks for the website, give the Website Link.`,
+    `- Do NOT answer questions unrelated to the app. Politely tell them: "I can only assist you with Main Mumbai application queries."`,
+    `- Do NOT show a numbered menu (like "1. Deposit, 2. Withdrawal"). Reply naturally.`,
   ];
 
   if (aiSettings.customInstructions) {
-    parts.push(`\nCustom Instructions:\n${aiSettings.customInstructions}`);
+    parts.push(`\n## CUSTOM INSTRUCTIONS:\n${aiSettings.customInstructions}`);
   }
 
-  return parts.join(". ");
+  return parts.join("\n");
 }

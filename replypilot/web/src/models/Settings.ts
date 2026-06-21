@@ -20,6 +20,17 @@ export interface ISettings extends Document {
     customInstructions: string;
     memoryType: "short" | "long" | "none";
     memoryMessageCount: number;
+    // Training configurations
+    greetingTemplate: string;
+    newAppLink: string;
+    oldAppLink: string;
+    websiteLink: string;
+    whatsappSupport: string;
+    minDeposit: number;
+    minWithdraw: number;
+    maxWithdraw: number;
+    withdrawOpenTime: string;
+    withdrawCloseTime: string;
   };
   // Business Hours
   businessHours: {
@@ -67,6 +78,17 @@ const SettingsSchema = new Schema<ISettings>(
       customInstructions: { type: String, default: "" },
       memoryType: { type: String, enum: ["short", "long", "none"], default: "short" },
       memoryMessageCount: { type: Number, default: 5 },
+      // Satta Matka training defaults
+      greetingTemplate: { type: String, default: "Hello {first_name}, welcome to Main Mumbai Support! How can I help you?" },
+      newAppLink: { type: String, default: "https://mainmumbaisattamatkadpboss.in/" },
+      oldAppLink: { type: String, default: "https://mainmumbaisattamatkadpboss.in/" },
+      websiteLink: { type: String, default: "https://www.mainmumbaistarline.com/" },
+      whatsappSupport: { type: String, default: "917339987622" },
+      minDeposit: { type: Number, default: 100 },
+      minWithdraw: { type: Number, default: 200 },
+      maxWithdraw: { type: Number, default: 50000 },
+      withdrawOpenTime: { type: String, default: "10:00 AM" },
+      withdrawCloseTime: { type: String, default: "04:00 PM" },
     },
     businessHours: {
       enabled: { type: Boolean, default: false },
