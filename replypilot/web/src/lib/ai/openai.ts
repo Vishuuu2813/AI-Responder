@@ -123,6 +123,9 @@ function buildSystemPrompt(
   const fullScannerUrl = chosenScanner
     ? (chosenScanner.startsWith("http") ? chosenScanner : `${baseUrl}${chosenScanner}`)
     : "";
+  const payUrl = chosenScanner
+    ? `${baseUrl}/pay?img=${encodeURIComponent(chosenScanner)}`
+    : "";
 
   const greetingMsg = (aiSettings.greetingTemplate || "Hello {first_name}, welcome to Main Mumbai Support! How can I help you?")
     .replace("{first_name}", contactName);
@@ -157,7 +160,7 @@ function buildSystemPrompt(
     `- Minimum Withdrawal: ₹${aiSettings.minWithdraw || 200}`,
     `- Maximum Withdrawal: ₹${aiSettings.maxWithdraw || 50000}`,
     `- Withdrawal Hours: ${aiSettings.withdrawOpenTime || "10:00 AM"} to ${aiSettings.withdrawCloseTime || "04:00 PM"} (Monday to Saturday)`,
-    `- Payment Scanner QR Code Link: ${fullScannerUrl || "Link not uploaded yet"}`,
+    `- Payment Scanner QR Code Link: ${payUrl || "Link not uploaded yet"}`,
     "\n## LIVE GAME CHARTS DIRECTORY",
     "Here is the database of direct Jodi and Panel chart links for all our games. If a user asks for a chart or link, refer directly to this list and output only the relevant URL:",
     "- **KALYAN**: Jodi: https://mainmumbaistarline.com/chart/jodi/kalyan | Panel: https://mainmumbaistarline.com/chart/panel/kalyan",
@@ -190,7 +193,7 @@ function buildSystemPrompt(
        - If they explicitly reply that they want the OLD app, then provide the Old App Download Link.`,
     `- If the user asks about depositing, adding money, or adding points ("paisa add karna", "points add", "recharge"):
        - You must inform them that they can scan our QR Code Scanner to make the payment: "आप हमारे क्यूआर कोड स्कैनर को स्कैन करके भी पेमेंट कर सकते हैं।"
-       - Show them their clickable Payment Scanner QR Code Link: ${fullScannerUrl || "No Scanner QR uploaded yet. Please ask support."}
+       - Put the Payment Scanner QR Code Link on a line by itself at the end: ${payUrl || "No Scanner QR uploaded yet. Please ask support."}
        - Provide the deposit rules: Minimum deposit is ₹${aiSettings.minDeposit || 100}. Once done, send a screenshot to support.`,
     `- If the user asks for the website, give the Website Link.`,
     `- If the user asks for a chart or chart link (e.g. "Kalyan chart", "Milan chart", "chart link", "chart chahiye"):
