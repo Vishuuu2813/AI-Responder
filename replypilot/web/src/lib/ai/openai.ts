@@ -110,6 +110,11 @@ function buildSystemPrompt(
     auto: "Detect the language of the incoming message and reply in the same language",
   };
 
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const fullScannerUrl = aiSettings.scannerUrl
+    ? (aiSettings.scannerUrl.startsWith("http") ? aiSettings.scannerUrl : `${baseUrl}${aiSettings.scannerUrl}`)
+    : "";
+
   const greetingMsg = (aiSettings.greetingTemplate || "Hello {first_name}, welcome to Main Mumbai Support! How can I help you?")
     .replace("{first_name}", contactName);
 
@@ -143,11 +148,19 @@ function buildSystemPrompt(
     `- Minimum Withdrawal: ₹${aiSettings.minWithdraw || 200}`,
     `- Maximum Withdrawal: ₹${aiSettings.maxWithdraw || 50000}`,
     `- Withdrawal Hours: ${aiSettings.withdrawOpenTime || "10:00 AM"} to ${aiSettings.withdrawCloseTime || "04:00 PM"} (Monday to Saturday)`,
+    `- Payment Scanner QR Code Link: ${fullScannerUrl || "Link not uploaded yet"}`,
     "\n## REPLIES RULES",
-    `- If the user asks for a download link:
-       - If they ask for the NEW app link, provide the New App Download Link with a polite description.
-       - If they ask for the OLD app link, provide the Old App Download Link.
-       - If they just ask for "app link" or "download", provide the New App Download Link.`,
+    `- If the user asks for a download link, app link, or installation file:
+       - **CRITICAL**: Do NOT send the link directly. You must first ask the user which version they want:
+         "Which app link do you need? / आपको कौन सा ऐप लिंक चाहिए?
+         1️⃣ New App Link (नया ऐप लिंक)
+         2️⃣ Old App Link (पुराना ऐप लिंक)"
+       - If they explicitly reply that they want the NEW app, then provide the New App Download Link.
+       - If they explicitly reply that they want the OLD app, then provide the Old App Download Link.`,
+    `- If the user asks about depositing, adding money, or adding points ("paisa add karna", "points add", "recharge"):
+       - You must inform them that they can scan our QR Code Scanner to make the payment: "आप हमारे क्यूआर कोड स्कैनर को स्कैन करके भी पेमेंट कर सकते हैं।"
+       - Show them their clickable Payment Scanner QR Code Link: ${fullScannerUrl || "No Scanner QR uploaded yet. Please ask support."}
+       - Provide the deposit rules: Minimum deposit is ₹${aiSettings.minDeposit || 100}. Once done, send a screenshot to support.`,
     `- If the user asks for the website, give the Website Link.`,
     `- Do NOT answer questions unrelated to the app. Politely tell them: "I can only assist you with Main Mumbai application queries."`,
     `- Do NOT show a numbered menu (like "1. Deposit, 2. Withdrawal"). Reply naturally.`,

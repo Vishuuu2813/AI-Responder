@@ -31,7 +31,8 @@ export default function BotTrainingPage() {
     maxWithdraw: 50000,
     withdrawOpenTime: "10:00 AM",
     withdrawCloseTime: "04:00 PM",
-    customInstructions: ""
+    customInstructions: "",
+    scannerUrl: ""
   });
 
   // Chat Logs
@@ -80,6 +81,31 @@ export default function BotTrainingPage() {
       console.error("Save error:", err);
     }
     setSaving(false);
+  };
+
+  const handleScannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.url) {
+        setAi(prev => ({ ...prev, scannerUrl: data.url }));
+        alert("Scanner uploaded successfully! Remember to save changes.");
+      } else {
+        alert("Upload failed: " + (data.error || "unknown error"));
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+      alert("Error uploading file.");
+    }
   };
 
   const filteredMessages = messages.filter(msg =>
@@ -166,6 +192,54 @@ export default function BotTrainingPage() {
                     <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>Website URL</label>
                     <input type="text" className="input-field" value={ai.websiteLink} onChange={e => setAi({ ...ai, websiteLink: e.target.value })} />
                   </div>
+                </div>
+              </div>
+
+              {/* Scanner QR Code Upload */}
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>📸 Payment QR Code Scanner</h3>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Upload a QR Code scanner image so users can scan and deposit points directly.</p>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleScannerUpload}
+                      style={{ display: "none" }}
+                      id="scanner-upload-input"
+                    />
+                    <label
+                      htmlFor="scanner-upload-input"
+                      style={{
+                        display: "inline-block",
+                        padding: "10px 20px",
+                        borderRadius: 10,
+                        background: "rgba(99,102,241,0.1)",
+                        border: "1px dashed rgba(99,102,241,0.4)",
+                        color: "#a5b4fc",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontSize: 13
+                      }}
+                    >
+                      📁 Upload QR Scanner Image
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      style={{ marginTop: 12 }}
+                      value={ai.scannerUrl}
+                      onChange={e => setAi({ ...ai, scannerUrl: e.target.value })}
+                      placeholder="Or paste direct image URL (https://...)"
+                    />
+                  </div>
+
+                  {ai.scannerUrl && (
+                    <div style={{ width: 100, height: 100, borderRadius: 12, border: "1px solid var(--border)", overflow: "hidden", background: "white", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <img src={ai.scannerUrl} alt="QR Scanner Preview" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                    </div>
+                  )}
                 </div>
               </div>
 

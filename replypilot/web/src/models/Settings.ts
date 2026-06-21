@@ -31,6 +31,7 @@ export interface ISettings extends Document {
     maxWithdraw: number;
     withdrawOpenTime: string;
     withdrawCloseTime: string;
+    scannerUrl: string;
   };
   // Business Hours
   businessHours: {
@@ -89,6 +90,7 @@ const SettingsSchema = new Schema<ISettings>(
       maxWithdraw: { type: Number, default: 50000 },
       withdrawOpenTime: { type: String, default: "10:00 AM" },
       withdrawCloseTime: { type: String, default: "04:00 PM" },
+      scannerUrl: { type: String, default: "" },
     },
     businessHours: {
       enabled: { type: Boolean, default: false },
