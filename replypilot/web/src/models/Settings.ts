@@ -33,6 +33,9 @@ export interface ISettings extends Document {
     withdrawCloseTime: string;
     scannerUrl: string;
     scanners: string[];
+    // Payment verification
+    paymentRecipientNames: string[];  // e.g. ["Vishal Sharma", "Main Mumbai"]
+    paymentVerificationEnabled: boolean;
   };
   // Business Hours
   businessHours: {
@@ -93,6 +96,9 @@ const SettingsSchema = new Schema<ISettings>(
       withdrawCloseTime: { type: String, default: "04:00 PM" },
       scannerUrl: { type: String, default: "" },
       scanners: { type: [String], default: [] },
+      // Payment verification
+      paymentRecipientNames: { type: [String], default: [] },
+      paymentVerificationEnabled: { type: Boolean, default: false },
     },
     businessHours: {
       enabled: { type: Boolean, default: false },
