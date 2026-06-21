@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
     if (!settings.ai.paymentVerificationEnabled) {
       return NextResponse.json({
         verified: false,
-        reply: null,
+        action: "disabled",
+        reply: `📸 *Payment screenshot mila!*\n\nAbhi automatic verification setup nahi hai.\n\nPlease apna screenshot admin ko forward karo ya directly support se contact karo:\n📞 *+${settings.ai.whatsappSupport || "917339987622"}*\n\nHum jald se jald aapke points add kar denge. 🙏`,
         reason: "Payment verification disabled",
       });
     }
