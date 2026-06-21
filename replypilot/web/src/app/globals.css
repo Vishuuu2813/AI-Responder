@@ -3,6 +3,8 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
+
   /* Brand Colors */
   --brand-purple: #6366f1;
   --brand-purple-dark: #4f46e5;
@@ -268,3 +270,11 @@ body {
 .toggle input:checked + .toggle-slider:before {
   transform: translateX(22px);
 }
+
+/* Fix select picklist options background and text colors in Chrome/Firefox/Safari */
+select.input-field option,
+select option {
+  background-color: #161622; /* var(--bg-card) */
+  color: #f8fafc; /* var(--text-primary) */
+}
+
