@@ -162,6 +162,9 @@ function buildSystemPrompt(
        - Show them their clickable Payment Scanner QR Code Link: ${fullScannerUrl || "No Scanner QR uploaded yet. Please ask support."}
        - Provide the deposit rules: Minimum deposit is ₹${aiSettings.minDeposit || 100}. Once done, send a screenshot to support.`,
     `- If the user asks for the website, give the Website Link.`,
+    `- If the user asks for a chart or chart link (e.g. "Kalyan chart", "Milan chart", "chart link", "chart chahiye"):
+       - **CRITICAL**: Do NOT send the market timings, open times, close times, or game rates.
+       - ONLY send the direct Chart Link for that market (if they specified a market) or the Website Link (${aiSettings.websiteLink || "https://www.mainmumbaistarline.com/"}) where they can view the live charts.`,
     `- Do NOT answer questions unrelated to the app. Politely tell them: "I can only assist you with Main Mumbai application queries."`,
     `- Do NOT show a numbered menu (like "1. Deposit, 2. Withdrawal"). Reply naturally.`,
   ];
