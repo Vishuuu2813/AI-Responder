@@ -1,0 +1,230 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth/auth";
+import connectDB from "@/lib/db/connect";
+import { Message } from "@/models/Message";
+import { Conversation } from "@/models/Conversation";
+import { Settings } from "@/models/Settings";
+import { Analytics } from "@/models/Analytics";
+import { Contact } from "@/models/Contact";
+import { generateAIReply } from "@/lib/ai/openai";
+import { matchManualRule } from "@/lib/ai/rules-engine";
+import { isWithinBusinessHours } from "@/lib/utils/business-hours";
+
+// POST /api/messages/incoming — Called by Android app
+export async function POST(req: NextRequest) {
+  try {
+    // Verify API key from Android app
+    const apiKey = req.headers.get("x-api-key");
+    if (!apiKey) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await connectDB();
+
+    const { User } = await import("@/models/User");
+    const user = await User.findOne({ apiKey });
+    if (!user) {
+      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { contactName, contactPhone, content, source, isGroup, groupName } = body;
+
+    if (!contactName || !contactPhone || !content || !source) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // Get user settings
+    const settings = await Settings.findOne({ user: user._id });
+    if (!settings || !settings.isEnabled) {
+      return NextResponse.json({ reply: null, reason: "Auto-reply disabled" });
+    }
+
+    // Check source filter
+    if (settings.whatsappSource !== "both" && settings.whatsappSource !== source) {
+      return NextResponse.json({ reply: null, reason: "Source filtered" });
+    }
+
+    // Check group filters
+    if (isGroup && settings.ignoreGroups) {
+      return NextResponse.json({ reply: null, reason: "Groups ignored" });
+    }
+
+    // Check contact blocklist
+    const contact = await Contact.findOne({ user: user._id, phone: contactPhone });
+    if (contact?.type === "blocked") {
+      return NextResponse.json({ reply: null, reason: "Contact blocked" });
+    }
+
+    // Check business hours
+    const businessHoursCheck = isWithinBusinessHours(settings.businessHours);
+    if (!businessHoursCheck.isOpen) {
+      return NextResponse.json({
+        reply: settings.businessHours.awayMessage,
+        reason: "Outside business hours",
+      });
+    }
+
+    // Get or create conversation
+    let conversation = await Conversation.findOne({
+      user: user._id,
+      contactPhone,
+      source,
+    });
+
+    if (!conversation) {
+      conversation = await Conversation.create({
+        user: user._id,
+        contactName,
+        contactPhone,
+        source,
+        isGroup,
+        groupName,
+        context: [],
+      });
+    }
+
+    // Save incoming message
+    const incomingMessage = await Message.create({
+      user: user._id,
+      conversation: conversation._id,
+      contactName,
+      contactPhone,
+      direction: "incoming",
+      content,
+      source,
+      isGroupMessage: isGroup,
+      groupName,
+      replyStatus: "pending",
+    });
+
+    let reply: string | null = null;
+    let replyMode: "ai" | "manual" | "hybrid" | "none" = "none";
+    let tokensUsed = 0;
+    let ruleId: string | undefined;
+
+    // Determine reply based on mode
+    if (settings.replyMode === "manual" || settings.replyMode === "hybrid") {
+      const ruleMatch = await matchManualRule(user._id.toString(), content);
+      if (ruleMatch.matched) {
+        reply = ruleMatch.reply!;
+        replyMode = "manual";
+        ruleId = ruleMatch.ruleId;
+      }
+    }
+
+    if (!reply && (settings.replyMode === "ai" || settings.replyMode === "hybrid")) {
+      const history = conversation.context.slice(-settings.ai.memoryMessageCount);
+      const aiResult = await generateAIReply({
+        userId: user._id.toString(),
+        message: content,
+        contactName,
+        conversationHistory: history,
+      });
+      reply = aiResult.reply;
+      replyMode = "ai";
+      tokensUsed = aiResult.tokensUsed;
+    }
+
+    if (!reply) {
+      await Message.updateOne({ _id: incomingMessage._id }, { replyStatus: "skipped" });
+      return NextResponse.json({ reply: null, reason: "No reply generated" });
+    }
+
+    // Calculate delay
+    let delayMs = 0;
+    if (settings.delay.type === "fixed") {
+      delayMs = settings.delay.fixedSeconds * 1000;
+    } else if (settings.delay.type === "random") {
+      const min = settings.delay.randomMin * 1000;
+      const max = settings.delay.randomMax * 1000;
+      delayMs = Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    // Update conversation context
+    await Conversation.updateOne(
+      { _id: conversation._id },
+      {
+        $push: {
+          context: [
+            { role: "user", content, timestamp: new Date() },
+            { role: "assistant", content: reply, timestamp: new Date() },
+          ],
+        },
+        lastMessage: reply,
+        lastMessageAt: new Date(),
+        $inc: { messageCount: 1, replyCount: 1 },
+      }
+    );
+
+    // Update incoming message with reply
+    await Message.updateOne(
+      { _id: incomingMessage._id },
+      {
+        replyContent: reply,
+        replyMode,
+        replyStatus: "sent",
+        aiTokensUsed: tokensUsed,
+        ruleId,
+        sentAt: new Date(),
+      }
+    );
+
+    // Update daily analytics
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    await Analytics.findOneAndUpdate(
+      { user: user._id, date: today },
+      {
+        $inc: {
+          totalMessages: 1,
+          totalReplies: 1,
+          aiReplies: replyMode === "ai" ? 1 : 0,
+          manualReplies: replyMode === "manual" ? 1 : 0,
+          aiTokensUsed: tokensUsed,
+        },
+        $addToSet: { uniqueContacts: contactPhone },
+      },
+      { upsert: true }
+    );
+
+    return NextResponse.json({
+      reply,
+      delay: delayMs,
+      replyMode,
+    });
+  } catch (error) {
+    console.error("Incoming message error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// GET /api/messages/incoming — Dashboard fetch
+export async function GET(req: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await connectDB();
+
+    const { searchParams } = new URL(req.url);
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = parseInt(searchParams.get("limit") || "20");
+    const skip = (page - 1) * limit;
+
+    const messages = await Message.find({ user: session.user.id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Message.countDocuments({ user: session.user.id });
+
+    return NextResponse.json({ messages, total, page, limit });
+  } catch (error) {
+    console.error("Get messages error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
