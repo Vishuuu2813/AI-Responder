@@ -82,6 +82,9 @@ export default function AISettingsPage() {
       <Section title="Model & Performance" icon="⚡">
         <Field label="AI Model">
           <select className="input-field" value={ai.model} onChange={e => setAi({ ...ai, model: e.target.value })}>
+            <option value="gpt-5.5">GPT-5.5 (New Class of Intelligence)</option>
+            <option value="gpt-5.4">GPT-5.4 (Intelligence at Scale)</option>
+            <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast & Cost-Efficient)</option>
             <option value="gpt-4o-mini">GPT-4o Mini (Fast & Affordable)</option>
             <option value="gpt-4o">GPT-4o (Most Capable)</option>
             <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Legacy)</option>

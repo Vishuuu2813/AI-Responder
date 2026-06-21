@@ -171,10 +171,13 @@ export default function AdminPage() {
               <div>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Platform OpenAI Model</label>
                 <select className="input-field" value={systemModel} onChange={(e) => setSystemModel(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }}>
-                  <option value="gpt-4o-mini">GPT-4o Mini (Recommended - Fast & Cheap)</option>
-                  <option value="gpt-4o">GPT-4o (Smartest & Premium)</option>
+                  <option value="gpt-5.5">GPT-5.5 (New Class of Intelligence)</option>
+                  <option value="gpt-5.4">GPT-5.4 (Intelligence at Scale)</option>
+                  <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast & Cost-Efficient)</option>
+                  <option value="gpt-4o-mini">GPT-4o Mini (Fast & Cheap)</option>
+                  <option value="gpt-4o">GPT-4o (Premium)</option>
                   <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Legacy)</option>
-                  <option value="o1-mini">o1-mini (Advanced Reasoning)</option>
+                  <option value="o1-mini">o1-mini (Reasoning)</option>
                   <option value="o1-preview">o1-preview (Full Reasoning)</option>
                 </select>
                 <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>This model is used system-wide for auto-replies when user accounts are configured to use the "System Key".</p>
