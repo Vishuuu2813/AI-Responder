@@ -32,7 +32,8 @@ export default function BotTrainingPage() {
     withdrawOpenTime: "10:00 AM",
     withdrawCloseTime: "04:00 PM",
     customInstructions: "",
-    scannerUrl: ""
+    scannerUrl: "",
+    scanners: [] as string[]
   });
 
   // Chat Logs
@@ -97,7 +98,10 @@ export default function BotTrainingPage() {
       });
       const data = await res.json();
       if (data.url) {
-        setAi(prev => ({ ...prev, scannerUrl: data.url }));
+        setAi(prev => ({
+          ...prev,
+          scanners: [...(prev.scanners || []), data.url]
+        }));
         alert("Scanner uploaded successfully! Remember to save changes.");
       } else {
         alert("Upload failed: " + (data.error || "unknown error"));
@@ -106,6 +110,13 @@ export default function BotTrainingPage() {
       console.error("Upload error:", err);
       alert("Error uploading file.");
     }
+  };
+
+  const handleRemoveScanner = (index: number) => {
+    setAi(prev => ({
+      ...prev,
+      scanners: prev.scanners.filter((_, i) => i !== index)
+    }));
   };
 
   const filteredMessages = messages.filter(msg =>
@@ -197,49 +208,61 @@ export default function BotTrainingPage() {
 
               {/* Scanner QR Code Upload */}
               <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>📸 Payment QR Code Scanner</h3>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Upload a QR Code scanner image so users can scan and deposit points directly.</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>📸 Multiple Payment QR Scanners</h3>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Upload one or more QR Code scanner images. The bot will pick one randomly for each deposit request to balance payments.</p>
                 
-                <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-                  <div style={{ flex: 1 }}>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleScannerUpload}
-                      style={{ display: "none" }}
-                      id="scanner-upload-input"
-                    />
-                    <label
-                      htmlFor="scanner-upload-input"
-                      style={{
-                        display: "inline-block",
-                        padding: "10px 20px",
-                        borderRadius: 10,
-                        background: "rgba(99,102,241,0.1)",
-                        border: "1px dashed rgba(99,102,241,0.4)",
-                        color: "#a5b4fc",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        fontSize: 13
-                      }}
-                    >
-                      📁 Upload QR Scanner Image
-                    </label>
-                    <input
-                      type="text"
-                      className="input-field"
-                      style={{ marginTop: 12 }}
-                      value={ai.scannerUrl}
-                      onChange={e => setAi({ ...ai, scannerUrl: e.target.value })}
-                      placeholder="Or paste direct image URL (https://...)"
-                    />
-                  </div>
+                <div style={{ marginBottom: 20 }}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleScannerUpload}
+                    style={{ display: "none" }}
+                    id="scanner-upload-input"
+                  />
+                  <label
+                    htmlFor="scanner-upload-input"
+                    style={{
+                      display: "inline-block",
+                      padding: "10px 20px",
+                      borderRadius: 10,
+                      background: "rgba(99,102,241,0.1)",
+                      border: "1px dashed rgba(99,102,241,0.4)",
+                      color: "#a5b4fc",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontSize: 13
+                    }}
+                  >
+                    📁 Upload QR Scanner Image
+                  </label>
+                </div>
 
-                  {ai.scannerUrl && (
-                    <div style={{ width: 100, height: 100, borderRadius: 12, border: "1px solid var(--border)", overflow: "hidden", background: "white", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <img src={ai.scannerUrl} alt="QR Scanner Preview" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                {/* Scanners List */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 16 }}>
+                  {(ai.scanners || []).map((url, idx) => (
+                    <div key={idx} style={{ position: "relative", border: "1px solid var(--border)", borderRadius: 12, padding: 8, background: "rgba(255,255,255,0.02)", textAlign: "center" }}>
+                      <div style={{ width: "100%", height: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "white", borderRadius: 8, overflow: "hidden", marginBottom: 6 }}>
+                        <img src={url} alt={`Scanner ${idx + 1}`} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>Scanner #{idx + 1}</div>
+                      <button
+                        onClick={() => handleRemoveScanner(idx)}
+                        style={{
+                          width: "100%",
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          background: "rgba(239,68,68,0.15)",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                          color: "#f87171",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          cursor: "pointer"
+                        }}
+                      >
+                        🗑️ Delete
+                      </button>
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
 
