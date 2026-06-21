@@ -54,9 +54,9 @@ async function seedAdminUser() {
     const bcrypt = await import("bcryptjs");
 
     const email = "vvishwas221@gmail.com";
+    const hashedPassword = await bcrypt.hash("Vish@2503@", 12);
     const existing = await User.findOne({ email });
     if (!existing) {
-      const hashedPassword = await bcrypt.hash("Vish@2503@", 12);
       const admin = await User.create({
         name: "Admin",
         email,
@@ -79,6 +79,13 @@ async function seedAdminUser() {
         },
       });
       console.log("Admin user seeded successfully.");
+    } else {
+      // Force update password and role of existing user to guarantee login
+      existing.password = hashedPassword;
+      existing.role = "admin";
+      existing.isActive = true;
+      await existing.save();
+      console.log("Admin user credentials updated successfully.");
     }
   } catch (err) {
     console.error("Admin seeding failed:", err);
