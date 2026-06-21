@@ -15,13 +15,32 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState("7d");
   const [autoReply, setAutoReply] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [apiKeyCopied, setApiKeyCopied] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(false);
 
   useEffect(() => {
     fetch(`/api/analytics?period=${period}`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); });
     fetch("/api/settings").then(r => r.json()).then(d => setAutoReply(d.settings?.isEnabled || false));
+    fetch("/api/apikey").then(r => r.json()).then(d => setApiKey(d.apiKey || null));
   }, [period]);
+
+  const generateApiKey = async () => {
+    setGeneratingKey(true);
+    const res = await fetch("/api/apikey", { method: "POST" });
+    const data = await res.json();
+    setApiKey(data.apiKey);
+    setGeneratingKey(false);
+  };
+
+  const copyApiKey = () => {
+    if (!apiKey) return;
+    navigator.clipboard.writeText(apiKey);
+    setApiKeyCopied(true);
+    setTimeout(() => setApiKeyCopied(false), 2000);
+  };
 
   const toggleAutoReply = async () => {
     const newVal = !autoReply;
@@ -66,6 +85,35 @@ export default function DashboardPage() {
               <span className="toggle-slider" />
             </label>
           </div>
+        </div>
+      </div>
+
+      {/* API Key Card */}
+      <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 16, padding: 24, marginBottom: 28, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 20 }}>🔑</span>
+            <h2 style={{ fontSize: 16, fontWeight: 700 }}>Your API Key</h2>
+            <span style={{ fontSize: 11, background: "rgba(99,102,241,0.2)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.4)", borderRadius: 100, padding: "2px 8px", fontWeight: 600 }}>Android App</span>
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Copy this key and paste it in your AutoMationBot Android app</p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {apiKey ? (
+            <div style={{ background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 16px", fontFamily: "monospace", fontSize: 13, color: "var(--text-primary)", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {apiKey}
+            </div>
+          ) : (
+            <div style={{ color: "var(--text-muted)", fontSize: 13 }}>No API key yet — generate one</div>
+          )}
+          {apiKey && (
+            <button onClick={copyApiKey} className="btn-brand" style={{ padding: "10px 18px", fontSize: 13 }}>
+              {apiKeyCopied ? "✅ Copied!" : "📋 Copy"}
+            </button>
+          )}
+          <button onClick={generateApiKey} disabled={generatingKey} style={{ padding: "10px 18px", fontSize: 13, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-glass)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 600 }}>
+            {generatingKey ? "Generating..." : apiKey ? "🔄 Regenerate" : "✨ Generate Key"}
+          </button>
         </div>
       </div>
 
