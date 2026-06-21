@@ -54,15 +54,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (!existingUser) {
           await User.create({
-            name: user.name,
-            email: user.email,
-            image: user.image,
+            name: user.name ?? "User",
+            email: user.email ?? "",
+            image: user.image ?? undefined,
             emailVerified: new Date(),
           });
         } else {
           await User.updateOne(
             { email: user.email },
-            { lastSeen: new Date(), image: user.image }
+            { lastSeen: new Date(), image: user.image ?? undefined }
           );
         }
       }
