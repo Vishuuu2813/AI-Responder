@@ -1,10 +1,12 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { authConfig } from "./auth.config";
 import connectDB from "@/lib/db/connect";
 import { User } from "@/models/User";
 import bcrypt from "bcryptjs";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       name: "credentials",
@@ -31,7 +33,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
           if (!isMatch) return null;
 
-          // Return all needed fields here — NO extra DB call needed later
           return {
             id: user._id.toString(),
             name: user.name,
@@ -46,37 +47,4 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    // jwt: copy user fields directly into token on login — NO DB call needed
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = (user as { role?: string }).role ?? "user";
-        token.name = user.name;
-        token.email = user.email;
-        token.picture = user.image ?? null;
-      }
-      return token;
-    },
-
-    // session: read from token — NO DB call
-    async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.id as string;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (session.user as any).role = token.role ?? "user";
-      }
-      return session;
-    },
-  },
-  pages: {
-    signIn: "/login",
-    error: "/login",
-  },
-  session: { strategy: "jwt" },
-  secret:
-    process.env.AUTH_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    "7bc8cb9a7146522bb3d81b899aef34f1",
-  trustHost: true,
 });
