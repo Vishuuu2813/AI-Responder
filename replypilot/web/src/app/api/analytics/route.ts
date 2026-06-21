@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import connectDB from "@/lib/db/connect";
+import mongoose from "mongoose";
 import { Analytics } from "@/models/Analytics";
 import { Message } from "@/models/Message";
 import { Conversation } from "@/models/Conversation";
@@ -22,15 +23,17 @@ export async function GET(req: NextRequest) {
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
+    const userId = new mongoose.Types.ObjectId(session.user.id);
+
     // Daily analytics
     const dailyStats = await Analytics.find({
-      user: session.user.id,
+      user: userId,
       date: { $gte: startDate },
     }).sort({ date: 1 }).lean();
 
     // Totals
     const totals = await Analytics.aggregate([
-      { $match: { user: session.user.id, date: { $gte: startDate } } },
+      { $match: { user: userId, date: { $gte: startDate } } },
       {
         $group: {
           _id: null,
@@ -46,12 +49,12 @@ export async function GET(req: NextRequest) {
 
     // Active conversations
     const activeConversations = await Conversation.countDocuments({
-      user: session.user.id,
+      user: userId,
       lastMessageAt: { $gte: startDate },
     });
 
     // Recent messages
-    const recentMessages = await Message.find({ user: session.user.id })
+    const recentMessages = await Message.find({ user: userId })
       .sort({ createdAt: -1 })
       .limit(5)
       .lean();

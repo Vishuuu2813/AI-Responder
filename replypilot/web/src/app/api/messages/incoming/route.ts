@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import connectDB from "@/lib/db/connect";
+import mongoose from "mongoose";
 import { Message } from "@/models/Message";
 import { Conversation } from "@/models/Conversation";
 import { Settings } from "@/models/Settings";
@@ -214,13 +215,15 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "20");
     const skip = (page - 1) * limit;
 
-    const messages = await Message.find({ user: session.user.id })
+    const userId = new mongoose.Types.ObjectId(session.user.id);
+
+    const messages = await Message.find({ user: userId })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    const total = await Message.countDocuments({ user: session.user.id });
+    const total = await Message.countDocuments({ user: userId });
 
     return NextResponse.json({ messages, total, page, limit });
   } catch (error) {
