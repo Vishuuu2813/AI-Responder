@@ -90,19 +90,6 @@ export default function AISettingsPage() {
             <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Legacy)</option>
           </select>
         </Field>
-        <Field label={`Temperature: ${ai.temperature}`} hint="Higher = more creative, Lower = more accurate">
-          <input type="range" min={0} max={2} step={0.1} value={ai.temperature} onChange={e => setAi({ ...ai, temperature: parseFloat(e.target.value) })} style={{ width: "100%", accentColor: "var(--brand-purple)" }} />
-        </Field>
-        <Field label={`Max Tokens: ${ai.maxTokens}`} hint="Max reply length (1 token ≈ 4 characters)">
-          <input type="range" min={50} max={2000} step={50} value={ai.maxTokens} onChange={e => setAi({ ...ai, maxTokens: parseInt(e.target.value) })} style={{ width: "100%", accentColor: "var(--brand-purple)" }} />
-        </Field>
-        <Field label="Memory Type" hint="How much conversation context to remember">
-          <select className="input-field" value={ai.memoryType} onChange={e => setAi({ ...ai, memoryType: e.target.value })}>
-            <option value="none">No Memory</option>
-            <option value="short">Short Memory (last few messages)</option>
-            <option value="long">Long Memory (full conversation)</option>
-          </select>
-        </Field>
       </Section>
 
       <Section title="Reply Style" icon="🎨">
