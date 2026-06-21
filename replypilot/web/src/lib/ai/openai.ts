@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import connectDB from "@/lib/db/connect";
 import { Settings } from "@/models/Settings";
+import { SystemSettings } from "@/models/SystemSettings";
 
 interface GenerateReplyOptions {
   userId: string;
@@ -21,14 +22,21 @@ export async function generateAIReply(
   await connectDB();
 
   const settings = await Settings.findOne({ user: options.userId });
-
   if (!settings) {
     throw new Error("User settings not found");
   }
 
+  const sysSettings = await SystemSettings.findOne();
+
+  // If user is using the system-wide key, we take the admin's key override (if set) or fallback to env.
+  // We also decide the model: if using system key, use admin's defaultModel. If using user key, use user settings model.
   const apiKey = settings.ai.useSystemKey
-    ? process.env.OPENAI_API_KEY
+    ? (sysSettings?.systemApiKey || process.env.OPENAI_API_KEY)
     : settings.ai.userApiKey;
+
+  const modelToUse = settings.ai.useSystemKey
+    ? (sysSettings?.defaultModel || "gpt-4o-mini")
+    : (settings.ai.model || "gpt-4o-mini");
 
   if (!apiKey) {
     throw new Error("No OpenAI API key configured");
@@ -61,7 +69,7 @@ export async function generateAIReply(
   messages.push({ role: "user", content: options.message });
 
   const completion = await openai.chat.completions.create({
-    model: settings.ai.model || "gpt-4o-mini",
+    model: modelToUse,
     messages,
     temperature: settings.ai.temperature,
     max_tokens: settings.ai.maxTokens,
@@ -73,7 +81,7 @@ export async function generateAIReply(
   return {
     reply,
     tokensUsed,
-    model: settings.ai.model,
+    model: modelToUse,
   };
 }
 

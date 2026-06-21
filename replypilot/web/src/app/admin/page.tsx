@@ -1,7 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
 
-interface AdminUser { _id: string; name: string; email: string; role: string; isActive: boolean; createdAt: string; lastSeen?: string; }
+interface AdminUser {
+  _id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  createdAt: string;
+  lastSeen?: string;
+}
 
 export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -9,14 +17,62 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("users");
 
+  // System Settings State
+  const [systemModel, setSystemModel] = useState("gpt-4o-mini");
+  const [systemApiKey, setSystemApiKey] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
+
   useEffect(() => {
-    fetch("/api/admin/stats").then(r => r.json()).then(d => { setStats(d.stats || {}); setLoading(false); });
-    fetch("/api/admin/users").then(r => r.json()).then(d => setUsers(d.users || []));
+    fetch("/api/admin/stats")
+      .then((r) => r.json())
+      .then((d) => {
+        setStats(d.stats || {});
+        setLoading(false);
+      });
+
+    fetch("/api/admin/users")
+      .then((r) => r.json())
+      .then((d) => setUsers(d.users || []));
+
+    // Fetch System Settings
+    fetch("/api/admin/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.settings) {
+          setSystemModel(d.settings.defaultModel || "gpt-4o-mini");
+          setSystemApiKey(d.settings.systemApiKey || "");
+        }
+      });
   }, []);
+
+  const handleSaveSystemSettings = async () => {
+    setSavingSettings(true);
+    setSaveStatus("");
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          defaultModel: systemModel,
+          systemApiKey: systemApiKey,
+        }),
+      });
+      if (res.ok) {
+        setSaveStatus("✅ Settings saved successfully!");
+      } else {
+        setSaveStatus("❌ Failed to save settings.");
+      }
+    } catch {
+      setSaveStatus("❌ Error updating settings.");
+    }
+    setSavingSettings(false);
+    setTimeout(() => setSaveStatus(""), 3000);
+  };
 
   const statCards = [
     { label: "Total Users", value: stats.totalUsers, icon: "👥", color: "#6366f1" },
-    { label: "Active Users", value: stats.activeUsers, icon: "✅", color: "#10b981" },
+    { label: "Active Users", value: stats.activeUsers, icon: "rawr", color: "#10b981" },
     { label: "Total Messages", value: stats.totalMessages, icon: "💬", color: "#8b5cf6" },
     { label: "Revenue (₹)", value: stats.totalRevenue, icon: "💰", color: "#f59e0b" },
   ];
@@ -35,19 +91,26 @@ export default function AdminPage() {
 
         {/* Stat Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20, marginBottom: 32 }}>
-          {statCards.map(s => (
+          {statCards.map((s) => (
             <div key={s.label} className="stat-card">
-              <span style={{ fontSize: 28 }}>{s.icon}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{s.label}</span>
+                <span style={{ fontSize: 20 }}>{s.icon === "rawr" ? "✅" : s.icon}</span>
+              </div>
               <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Outfit', sans-serif", color: s.color, marginTop: 12 }}>{loading ? "—" : s.value.toLocaleString()}</div>
-              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>{s.label}</div>
             </div>
           ))}
         </div>
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "var(--bg-secondary)", borderRadius: 12, padding: 4, width: "fit-content" }}>
-          {["users", "subscriptions", "analytics"].map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ padding: "8px 20px", borderRadius: 9, border: "none", background: tab === t ? "var(--bg-card)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", textTransform: "capitalize" }}>{t}</button>
+          {[
+            { id: "users", label: "Users" },
+            { id: "systemSettings", label: "System Settings" },
+            { id: "subscriptions", label: "Subscriptions" },
+            { id: "analytics", label: "Analytics" },
+          ].map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 20px", borderRadius: 9, border: "none", background: tab === t.id ? "var(--bg-card)" : "transparent", color: tab === t.id ? "var(--text-primary)" : "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{t.label}</button>
           ))}
         </div>
 
@@ -60,7 +123,7 @@ export default function AdminPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)" }}>
-                  {["User", "Email", "Role", "Status", "Joined", "Last Seen", "Actions"].map(h => (
+                  {["User", "Email", "Role", "Status", "Joined", "Last Seen", "Actions"].map((h) => (
                     <th key={h} style={{ padding: "12px 20px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>{h}</th>
                   ))}
                 </tr>
@@ -94,6 +157,44 @@ export default function AdminPage() {
                 {users.length === 0 && <tr><td colSpan={7} style={{ padding: 60, textAlign: "center", color: "var(--text-muted)" }}>No users yet</td></tr>}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* System Settings Tab */}
+        {tab === "systemSettings" && (
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>⚙️ System Settings</h2>
+            <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>Configure platform-wide OpenAI settings for the auto-responder.</p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20, maxWidth: 600 }}>
+              {/* Model Dropdown */}
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Platform OpenAI Model</label>
+                <select className="input-field" value={systemModel} onChange={(e) => setSystemModel(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }}>
+                  <option value="gpt-4o-mini">GPT-4o Mini (Recommended - Fast & Cheap)</option>
+                  <option value="gpt-4o">GPT-4o (Smartest & Premium)</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Legacy)</option>
+                  <option value="o1-mini">o1-mini (Advanced Reasoning)</option>
+                  <option value="o1-preview">o1-preview (Full Reasoning)</option>
+                </select>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>This model is used system-wide for auto-replies when user accounts are configured to use the "System Key".</p>
+              </div>
+
+              {/* API Key Input */}
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-secondary)" }}>Platform OpenAI API Key (Override)</label>
+                <input className="input-field" type="password" placeholder="Leave empty to use .env key" value={systemApiKey} onChange={(e) => setSystemApiKey(e.target.value)} style={{ width: "100%", padding: "12px", background: "var(--bg-glass)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-primary)" }} />
+                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Optional. If empty, the system will use the key configured in the server's `.env` environment file.</p>
+              </div>
+
+              {/* Save Status and Button */}
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12 }}>
+                <button className="btn-brand" onClick={handleSaveSystemSettings} disabled={savingSettings}>
+                  {savingSettings ? "Saving Settings..." : "Save Settings"}
+                </button>
+                {saveStatus && <span style={{ fontSize: 13, fontWeight: 600 }}>{saveStatus}</span>}
+              </div>
+            </div>
           </div>
         )}
 
