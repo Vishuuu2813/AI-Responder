@@ -231,29 +231,25 @@ Rules:
   }
 }
 
-// GET /api/payment/screenshot — Get payment records (dashboard)
+
+// GET /api/payment/screenshot — Get payment records (dashboard via session)
 export async function GET(req: NextRequest) {
   try {
-    const apiKey = req.headers.get("x-api-key");
-    if (!apiKey) {
+    const { auth } = await import("@/lib/auth/auth");
+    const session = await auth();
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     await connectDB();
 
-    const { User } = await import("@/models/User");
-    const user = await User.findOne({ apiKey });
-    if (!user) {
-      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
-    }
-
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "20");
-    const status = searchParams.get("status"); // filter by status
+    const status = searchParams.get("status");
     const skip = (page - 1) * limit;
 
-    const query: any = { user: user._id };
+    const query: any = { user: session.user.id };
     if (status) query.status = status;
 
     const records = await PaymentRecord.find(query)
@@ -270,3 +266,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
