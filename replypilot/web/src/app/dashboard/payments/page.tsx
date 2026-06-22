@@ -65,17 +65,27 @@ export default function PaymentRecordsPage() {
 
   const saveSettings = async () => {
     setSettingsSaving(true);
-    await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        "ai.paymentRecipientNames": recipientNames,
-        "ai.paymentVerificationEnabled": verificationEnabled,
-      }),
-    });
-    setSettingsSaving(false);
-    setSettingsSaved(true);
-    setTimeout(() => setSettingsSaved(false), 2000);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          "ai.paymentRecipientNames": recipientNames,
+          "ai.paymentVerificationEnabled": verificationEnabled,
+        }),
+      });
+      if (res.ok) {
+        setSettingsSaved(true);
+        setTimeout(() => setSettingsSaved(false), 2000);
+      } else {
+        alert("Failed to save settings. Please try again.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error saving settings. Please try again.");
+    } finally {
+      setSettingsSaving(false);
+    }
   };
 
   const addName = () => {
