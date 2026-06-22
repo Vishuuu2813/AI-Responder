@@ -1,17 +1,20 @@
-// ReplyPilot Extension — content.js (v4)
+// ReplyPilot Extension — content.js (v5 - Final & Robust)
 const TAG = "[ReplyPilot]";
-const PROCESSED = new Set();
-const CHAT_REPLIED = {}; // chatName -> lastRepliedTimestamp
+const LAST_PROCESSED_MSG_ID = {}; // phone -> last processed incoming message ID
+const CHAT_REPLIED = {}; // chatName -> lastClickedTimestamp
 let API_KEY = "", API_BASE = "", IS_ENABLED = false, SCANNERS = [], IS_BUSY = false;
 let CURRENT_CHAT = "";
+let IS_OPENED_BY_POLLER = false;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ── Settings ──────────────────────────────────────────────────
 async function loadSettings() {
   return new Promise(r => chrome.storage.sync.get(["apiKey","apiBase","isEnabled"], d => {
-    API_KEY = d.apiKey || ""; API_BASE = (d.apiBase||"").replace(/\/$/,"");
-    IS_ENABLED = d.isEnabled !== false; r();
+    API_KEY = d.apiKey || ""; 
+    API_BASE = (d.apiBase||"").replace(/\/$/,"");
+    IS_ENABLED = d.isEnabled !== false; 
+    r();
   }));
 }
 async function loadScanners() {
@@ -34,9 +37,10 @@ function getSend() {
     || document.querySelector('button[aria-label="Send"]');
 }
 
-// Extract phone from data-id: "false_919876543210@s.whatsapp.net_..."
+// Extract phone/group ID from data-id
 function phoneFromId(msgId) {
-  const m = msgId.match(/(?:false|true)_(\d+)@/);
+  if (!msgId) return null;
+  const m = msgId.match(/(?:false|true)_([^@]+)@/);
   return m ? m[1] : null;
 }
 function getContactName() {
@@ -60,14 +64,6 @@ function safeClick(element) {
   }
 }
 
-// ── Mark ALL current messages as seen (prevent old msg replies) ─
-function markAllSeen() {
-  document.querySelectorAll("[data-id]").forEach(m => {
-    const id = m.getAttribute("data-id");
-    if (id) PROCESSED.add(id);
-  });
-}
-
 // ── Send text ─────────────────────────────────────────────────
 async function sendText(text) {
   const input = getInput();
@@ -75,7 +71,7 @@ async function sendText(text) {
   input.focus();
   try { await navigator.clipboard.writeText(text); document.execCommand("paste"); }
   catch { try { document.execCommand("insertText", false, text); } catch { input.innerText = text; input.dispatchEvent(new InputEvent("input",{bubbles:true})); } }
-  await sleep(400);
+  await sleep(450);
   const btn = getSend();
   if (btn) { btn.click(); console.log(TAG, "✅ Sent:", text.slice(0,50)); return true; }
   input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",keyCode:13,bubbles:true}));
@@ -114,7 +110,6 @@ function matchScanner(text) {
 }
 
 async function callTextAPI(text, phone, name) {
-  // Validate inputs
   if (!API_KEY||!API_BASE) return null;
   if (!phone||phone.length<5) { console.warn(TAG,"Invalid phone, skip"); return null; }
 
@@ -147,12 +142,16 @@ async function callPayAPI(b64, phone, name) {
 // ── Process one message ───────────────────────────────────────
 async function processMsg(msgEl) {
   const id = msgEl.getAttribute("data-id")||"";
-  if (!id||PROCESSED.has(id)||id.startsWith("true_")||msgEl.classList.contains("message-out")) return;
-  PROCESSED.add(id);
-  if (PROCESSED.size>2000) { const it=PROCESSED.values(); for(let i=0;i<500;i++) PROCESSED.delete(it.next().value); }
+  if (!id || id.startsWith("true_") || msgEl.classList.contains("message-out")) return;
 
   const phone = phoneFromId(id);
-  const name  = getContactName();
+  if (!phone) return;
+
+  // If already processed this message ID, skip to avoid duplicate replies
+  if (LAST_PROCESSED_MSG_ID[phone] === id) return;
+  LAST_PROCESSED_MSG_ID[phone] = id;
+
+  const name = getContactName();
 
   // Detect image
   const hasImg = msgEl.querySelector("img[src]:not([src*='emoji']):not([src*='profile'])")
@@ -177,15 +176,31 @@ async function processMsg(msgEl) {
   if (reply && reply!=="SCANNER") { await sleep(800); await sendText(reply); }
 }
 
-// ── Watch for chat header changes → mark existing as seen ─────
+// ── Watch for chat header changes (user switching chats manually) ──
 function watchChatChange() {
   const headerArea = document.querySelector('header') || document.body;
   new MutationObserver(() => {
     const title = getContactName();
     if (title !== CURRENT_CHAT && title !== "Unknown") {
       CURRENT_CHAT = title;
-      console.log(TAG,"📂 Chat opened:",title,"— marking existing msgs as seen");
-      setTimeout(markAllSeen, 800); // mark after messages load
+      if (!IS_OPENED_BY_POLLER) {
+        // User opened this chat manually. Mark its last message as seen so we don't reply to history.
+        setTimeout(() => {
+          const all = [...document.querySelectorAll("[data-id]")].filter(m => {
+            const id = m.getAttribute("data-id") || "";
+            return !id.startsWith("true_") && !m.classList.contains("message-out");
+          });
+          if (all.length > 0) {
+            const lastMsg = all[all.length - 1];
+            const id = lastMsg.getAttribute("data-id");
+            const phone = phoneFromId(id);
+            if (phone) {
+              LAST_PROCESSED_MSG_ID[phone] = id;
+              console.log(TAG, `Manual open: Marked ${id} for ${phone} as processed`);
+            }
+          }
+        }, 1000);
+      }
     }
   }).observe(headerArea, { subtree:true, childList:true, attributes:true, attributeFilter:["title"] });
 }
@@ -203,11 +218,13 @@ async function pollUnread() {
       const chatName = item.querySelector("span[title]")?.getAttribute("title")||"";
       if (!chatName) continue;
 
-      // Time-based dedup: don't re-process same chat within 60 seconds
+      // Deduplication cooldown
       const lastTime = CHAT_REPLIED[chatName]||0;
-      if (Date.now()-lastTime < 60000) continue;
+      if (Date.now()-lastTime < 10000) continue; 
+      CHAT_REPLIED[chatName] = Date.now();
 
-      console.log(TAG,`📩 Unread: "${chatName}" — clicking`);
+      console.log(TAG,`📩 Unread detected in "${chatName}" — opening`);
+      IS_OPENED_BY_POLLER = true;
       safeClick(item);
 
       // Verify if chat opened (retry up to 3s)
@@ -219,7 +236,6 @@ async function pollUnread() {
           chatOpened = true;
           break;
         }
-        // Try clicking alternative children/parent just in case
         if (k % 2 === 1) {
           const clickableChild = item.querySelector('[role="gridcell"]') || item.querySelector('span[title]') || item;
           safeClick(clickableChild);
@@ -228,34 +244,36 @@ async function pollUnread() {
 
       if (!chatOpened) {
         console.warn(TAG, `Could not open chat: "${chatName}"`);
+        IS_OPENED_BY_POLLER = false;
         continue;
       }
 
       // Wait for messages to load (retry up to 3s)
-      let msgs = [];
+      let lastMsg = null;
       for (let i=0; i<6; i++) {
         await sleep(500);
         const all = [...document.querySelectorAll("[data-id]")].filter(m=>{
           const id=m.getAttribute("data-id")||"";
-          return !id.startsWith("true_")&&!m.classList.contains("message-out")&&!PROCESSED.has(id);
+          return !id.startsWith("true_") && !m.classList.contains("message-out");
         });
-        if (all.length>0) { msgs=all; break; }
+        if (all.length>0) { lastMsg = all[all.length-1]; break; }
       }
 
-      if (msgs.length===0) {
-        console.warn(TAG,"No new msgs found in",chatName);
-        CHAT_REPLIED[chatName] = Date.now(); // mark as done anyway to avoid spam
-        continue;
+      if (lastMsg) {
+        await processMsg(lastMsg);
+      } else {
+        console.warn(TAG, "No incoming messages found in open chat:", chatName);
       }
 
-      // Process only the LAST unread message
-      const lastMsg = msgs[msgs.length-1];
-      CHAT_REPLIED[chatName] = Date.now();
-      await processMsg(lastMsg);
+      IS_OPENED_BY_POLLER = false;
       await sleep(500);
     }
-  } catch(e) { console.error(TAG,"pollUnread err:",e.message); }
-  finally { IS_BUSY = false; }
+  } catch(e) { 
+    console.error(TAG,"pollUnread err:",e.message); 
+    IS_OPENED_BY_POLLER = false;
+  } finally { 
+    IS_BUSY = false; 
+  }
 }
 
 // ── MutationObserver for open chat ───────────────────────────
@@ -270,7 +288,7 @@ function startObserver() {
       }
     }
   }).observe(document.body,{childList:true,subtree:true});
-  console.log(TAG,"🔍 Observer ready");
+  console.log(TAG, "🔍 Message observer active");
 }
 
 // ── Settings sync ─────────────────────────────────────────────
@@ -285,10 +303,23 @@ chrome.storage.onChanged.addListener(c=>{
 (async()=>{
   await loadSettings();
   await loadScanners();
-  // Mark all currently visible messages as already seen
-  markAllSeen();
+  
+  // Mark current open chat last message as processed so we don't auto-reply to history
+  const all = [...document.querySelectorAll("[data-id]")].filter(m => {
+    const id = m.getAttribute("data-id") || "";
+    return !id.startsWith("true_") && !m.classList.contains("message-out");
+  });
+  if (all.length > 0) {
+    const lastMsg = all[all.length - 1];
+    const id = lastMsg.getAttribute("data-id");
+    const phone = phoneFromId(id);
+    if (phone) {
+      LAST_PROCESSED_MSG_ID[phone] = id;
+    }
+  }
+
   startObserver();
   watchChatChange();
   setInterval(pollUnread, 4000);
-  console.log(TAG,`✅ Ready | enabled:${IS_ENABLED} | api:${API_BASE?"✅":"❌"}`);
+  console.log(TAG,`✅ ReplyPilot extension initialized successfully.`);
 })();
