@@ -207,18 +207,17 @@ async function processTextMessage(text, phone, name) {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/api/message/incoming`, {
+    const res = await fetch(`${API_BASE}/api/messages/incoming`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": API_KEY,
       },
       body: JSON.stringify({
-        message:      text,
+        content:      text,        // ← API expects 'content' not 'message'
         contactPhone: phone,
         contactName:  name || phone,
-        source:       "whatsapp_web_extension",
-        platform:     "whatsapp",
+        source:       "whatsapp",  // ← must match server's allowed source values
       }),
     });
 
