@@ -148,6 +148,9 @@ function isOutgoingMessage(msgEl, chatName) {
     const textAlign = computed.textAlign || '';
     const float = computed.float || '';
     
+    if (alignSelf.includes('start') || justifySelf.includes('start') || justifyItems.includes('start') || textAlign.includes('left') || float === 'left') {
+      return false;
+    }
     if (alignSelf.includes('end') || justifySelf.includes('end') || justifyItems.includes('end') || textAlign.includes('right') || float === 'right') {
       return true;
     }
@@ -167,22 +170,10 @@ function isOutgoingMessage(msgEl, chatName) {
       if (match) {
         const senderName = match[1].trim().toLowerCase();
         const cleanSender = cleanName(senderName);
-        const cleanChat = cleanName(chatName);
 
         // Common outgoing sender names
-        if (["you", "aap", "आप", "me", "mainmumbai", "mainmumbaisupport"].includes(cleanSender)) {
+        if (["you", "aap", "आप", "me"].includes(cleanSender)) {
           return true;
-        }
-
-        // If it's a 1-on-1 chat, the chatName matches the contact name.
-        // If the sender name doesn't match the contact, it must be outgoing (us)
-        if (cleanChat && cleanSender && cleanSender !== cleanChat) {
-          // Verify we aren't in a group chat by checking header contents for commas or 'group'
-          const headerText = document.querySelector('#main header')?.innerText || '';
-          const isGroup = headerText.includes(',') || headerText.toLowerCase().includes('group');
-          if (!isGroup) {
-            return true;
-          }
         }
       }
       
