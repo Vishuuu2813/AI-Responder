@@ -1,4 +1,4 @@
-// ReplyPilot Extension — content.js (v6)
+// ReplyPilot Extension — content.js (v7)
 const TAG = "[ReplyPilot]";
 const LAST_PROCESSED_MSG_ID = {}; // phone -> last processed incoming message ID
 const CHAT_REPLIED = {}; // chatName -> lastClickedTimestamp
@@ -38,11 +38,31 @@ function getSend() {
     || document.querySelector('button[aria-label="Send"]');
 }
 
-// Extract phone/group ID from data-id
+// ── Check if data-id is a known non-message container (32-char uppercase hex) ──
+function isContainerId(id) {
+  // Container IDs are exactly 32 uppercase hex chars like "AC3E6E90AEB0D0A491B39F1D2AA745F9"
+  return /^[A-F0-9]{32}$/.test(id);
+}
+
+// ── Extract phone from chat URL or header (fallback for unsaved/new format msgs) ──
+function phoneFromContext() {
+  // WhatsApp Web URL sometimes contains the JID after open/
+  const urlMatch = window.location.href.match(/\/([0-9]{10,15})/);
+  if (urlMatch) return urlMatch[1];
+  // For unsaved contacts, the header title IS the phone number
+  const name = getContactName();
+  const cleaned = name.replace(/[\s\+\-\(\)]/g, "");
+  if (/^[0-9]{10,15}$/.test(cleaned)) return cleaned;
+  return null;
+}
+
+// Extract phone/group ID from data-id, or fall back to chat context
 function phoneFromId(msgId) {
   if (!msgId) return null;
   const m = msgId.match(/(?:false|true)_([^@]+)@/);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  // New short-format IDs don't embed the phone — get from context
+  return phoneFromContext();
 }
 function cleanName(str) {
   if (!str) return "";
@@ -112,9 +132,19 @@ function clickChatItem(item) {
 function getIncomingMessages() {
   const main = document.querySelector("#main");
   if (!main) return [];
+
+  // PRIMARY: Use .message-in CSS class — works for both saved & unsaved contacts,
+  // and for both old and new WhatsApp Web data-id formats
+  const byClass = [...main.querySelectorAll(".message-in")].filter(
+    m => !m.closest("#pane-side")
+  );
+  if (byClass.length > 0) return byClass;
+
+  // FALLBACK: data-id approach, skip known 32-char container IDs
   return [...main.querySelectorAll("[data-id]")].filter(m => {
     const id = m.getAttribute("data-id") || "";
     if (!id || id.startsWith("true_")) return false;
+    if (isContainerId(id)) return false;  // skip non-message containers
     if (m.classList.contains("message-out")) return false;
     if (m.closest("#pane-side")) return false;
     return true;
@@ -244,13 +274,16 @@ async function callPayAPI(b64, phone, name) {
 async function processMsg(msgEl, opts = {}) {
   const force = !!opts.force;
   const id = msgEl.getAttribute("data-id") || "";
-  if (!id || id.startsWith("true_") || msgEl.classList.contains("message-out")) return false;
+
+  // Skip outgoing and known non-message container IDs
+  if (id && isContainerId(id)) return false;
+  if (id && id.startsWith("true_")) return false;
+  if (msgEl.classList.contains("message-out")) return false;
 
   const phone = phoneFromId(id);
-  if (!phone) { console.warn(TAG, "skip: no phone in id", id.slice(0, 40)); return false; }
+  if (!phone) return false;
 
   if (LAST_PROCESSED_MSG_ID[phone] === id && !force) {
-    console.log(TAG, "skip: already processed", id.slice(0, 30));
     return false;
   }
   if (IN_FLIGHT.has(id)) return false;
@@ -264,8 +297,23 @@ async function processMsg(msgEl, opts = {}) {
 
   const name = getContactName();
 
-  const hasImg = msgEl.querySelector("img[src]:not([src*='emoji']):not([src*='profile'])")
-    || msgEl.querySelector("[data-testid='media-url-provider']");
+  // Look for image inside the message bubble container (avoiding sibling avatar column)
+  const bubble = msgEl.querySelector(".copyable-text") || msgEl.querySelector('[data-testid="msg-container"]') || msgEl;
+  let hasImg = false;
+  const imgs = bubble.querySelectorAll("img[src]");
+  for (const img of imgs) {
+    const src = img.src || "";
+    if (src.includes("emoji") || src.includes("profile") || src.includes("pps.whatsapp.net")) {
+      continue;
+    }
+    if (src.startsWith("blob:") || img.getAttribute("data-testid") === "image-element") {
+      hasImg = true;
+      break;
+    }
+  }
+  if (!hasImg && bubble.querySelector("[data-testid='media-url-provider']")) {
+    hasImg = true;
+  }
 
   if (hasImg) {
     console.log(TAG, "📷 Image from", phone);
@@ -280,7 +328,6 @@ async function processMsg(msgEl, opts = {}) {
 
   const text = getMessageText(msgEl);
   if (!text || text.length < 1) {
-    console.log(TAG, "skip: empty text (sticker/audio?) id:", id.slice(0, 30));
     IN_FLIGHT.delete(id);
     return false;
   }
@@ -366,8 +413,9 @@ async function pollUnread() {
         continue;
       }
 
+      // Wait for messages to load, with longer timeout
       let lastMsg = null;
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 10; i++) {
         await sleep(500);
         const all = getIncomingMessages();
         if (all.length > 0) { lastMsg = all[all.length - 1]; break; }
@@ -375,10 +423,16 @@ async function pollUnread() {
 
       if (lastMsg) {
         const ok = await processMsg(lastMsg, { force: true });
-        if (ok) CHAT_REPLIED[chatName] = Date.now();
-        else console.warn(TAG, "Unread chat opened but reply not sent:", chatName);
+        if (ok) {
+          CHAT_REPLIED[chatName] = Date.now();
+          console.log(TAG, `✅ Replied in "${chatName}"`);
+        } else {
+          // Mark as handled so we don't keep retrying indefinitely
+          CHAT_REPLIED[chatName] = Date.now();
+          console.warn(TAG, `Unread chat opened but reply not sent: ${chatName} (marked to avoid loop)`);
+        }
       } else {
-        console.warn(TAG, "No incoming messages found in open chat:", chatName);
+        console.warn(TAG, "No valid incoming messages found in open chat:", chatName);
         CHAT_REPLIED[chatName] = Date.now();
       }
 
@@ -400,8 +454,15 @@ function startObserver() {
     for (const m of muts) {
       for (const n of m.addedNodes) {
         if (n.nodeType!==1) continue;
-        if (n.getAttribute?.("data-id")) { processMsg(n); continue; }
-        n.querySelectorAll?.("[data-id]").forEach(el=>processMsg(el));
+        // Only process nodes with valid WhatsApp message data-ids
+        const nId = n.getAttribute?.("data-id");
+        if (nId && isValidMsgId(nId)) { processMsg(n); continue; }
+        // Check children but limit scope to avoid processing hundreds of non-message elements
+        if (nId) continue; // has data-id but not a valid message — skip its children too
+        const msgEls = n.querySelectorAll?.('[data-id^="false_"]');
+        if (msgEls) msgEls.forEach(el => {
+          if (isValidMsgId(el.getAttribute("data-id"))) processMsg(el);
+        });
       }
     }
   }).observe(document.body,{childList:true,subtree:true});
@@ -430,5 +491,5 @@ chrome.storage.onChanged.addListener(c=>{
   startObserver();
   watchChatChange();
   setInterval(pollUnread, 4000);
-  console.log(TAG, "✅ ReplyPilot extension initialized successfully.");
+  console.log(TAG, "✅ ReplyPilot extension v7 initialized successfully.");
 })();

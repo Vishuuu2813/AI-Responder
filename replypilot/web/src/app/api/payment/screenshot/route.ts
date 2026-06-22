@@ -91,7 +91,7 @@ Rules:
 - Extract exactly as shown in the screenshot, do not guess`;
 
     const visionResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "user",
