@@ -5,7 +5,17 @@ import { Settings } from "@/models/Settings";
 import { SystemSettings } from "@/models/SystemSettings";
 import { PaymentRecord } from "@/models/PaymentRecord";
 
-// POST /api/payment/screenshot — Called by Android app when user sends a payment image
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, x-api-key, Authorization",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: CORS });
+}
+
+// POST /api/payment/screenshot — Called by Android app / extension when user sends a payment image
 export async function POST(req: NextRequest) {
   try {
     const apiKey = req.headers.get("x-api-key");

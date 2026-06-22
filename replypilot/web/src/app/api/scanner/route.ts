@@ -1,35 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { connectDB } from "@/lib/mongodb";
+import { auth } from "@/lib/auth/auth";
+import connectDB from "@/lib/db/connect";
 import { Settings } from "@/models/Settings";
 import { User } from "@/models/User";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 
-// GET — fetch all scanner configs for this user
+// ─── CORS helper ─────────────────────────────────────────────
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, x-api-key, Authorization",
+  };
+}
+
+// Handle OPTIONS preflight
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: corsHeaders() });
+}
+
+// GET — fetch all scanner configs (API key or session)
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
 
-    // Support both API key (extension) and session (dashboard)
     const apiKey = req.headers.get("x-api-key");
-    let user: any = null;
+    let userId: string | null = null;
 
     if (apiKey) {
-      user = await User.findOne({ apiKey });
+      const user = await User.findOne({ apiKey });
+      if (!user) return NextResponse.json({ error: "Invalid API key" }, { status: 401, headers: corsHeaders() });
+      userId = user._id.toString();
     } else {
-      const session = await getServerSession(authOptions as any);
-      if (!session?.user?.email) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      user = await User.findOne({ email: session.user.email });
+      const session = await auth();
+      userId = session?.user?.id ?? null;
+      if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders() });
     }
 
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
-
-    const settings = await Settings.findOne({ user: user._id });
+    const settings = await Settings.findOne({ user: userId });
     const rawScanners = settings?.ai?.scanners || [];
 
-    // Parse scanner JSON strings
     const scanners = rawScanners
       .map((s: string) => {
         try { return typeof s === "string" ? JSON.parse(s) : s; }
@@ -37,30 +46,26 @@ export async function GET(req: NextRequest) {
       })
       .filter(Boolean);
 
-    return NextResponse.json({ scanners });
+    return NextResponse.json({ scanners }, { headers: corsHeaders() });
   } catch (e: any) {
     console.error("GET /api/scanner error:", e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders() });
   }
 }
 
-// POST — add a new scanner config
+// POST — add a new scanner config (session only)
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
-    const session = await getServerSession(authOptions as any);
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const user = await User.findOne({ email: session.user.email });
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders() });
 
     const body = await req.json();
     const { name, keywords, imageBase64 } = body;
 
     if (!name || !imageBase64) {
-      return NextResponse.json({ error: "name and imageBase64 are required" }, { status: 400 });
+      return NextResponse.json({ error: "name and imageBase64 are required" }, { status: 400, headers: corsHeaders() });
     }
 
     const newScanner = {
@@ -71,55 +76,43 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    const settings = await Settings.findOne({ user: user._id });
-    if (!settings) {
-      return NextResponse.json({ error: "Settings not found" }, { status: 404 });
-    }
+    const settings = await Settings.findOne({ user: userId });
+    if (!settings) return NextResponse.json({ error: "Settings not found" }, { status: 404, headers: corsHeaders() });
 
     const existing = settings.ai.scanners || [];
     existing.push(JSON.stringify(newScanner));
 
-    await Settings.updateOne(
-      { user: user._id },
-      { $set: { "ai.scanners": existing } }
-    );
+    await Settings.updateOne({ user: userId }, { $set: { "ai.scanners": existing } });
 
-    return NextResponse.json({ success: true, scanner: newScanner });
+    return NextResponse.json({ success: true, scanner: newScanner }, { headers: corsHeaders() });
   } catch (e: any) {
     console.error("POST /api/scanner error:", e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders() });
   }
 }
 
-// DELETE — remove a scanner by id
+// DELETE — remove a scanner by id (session only)
 export async function DELETE(req: NextRequest) {
   try {
     await connectDB();
-    const session = await getServerSession(authOptions as any);
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const user = await User.findOne({ email: session.user.email });
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders() });
 
     const { id } = await req.json();
-    const settings = await Settings.findOne({ user: user._id });
-    if (!settings) return NextResponse.json({ error: "Settings not found" }, { status: 404 });
+    const settings = await Settings.findOne({ user: userId });
+    if (!settings) return NextResponse.json({ error: "Settings not found" }, { status: 404, headers: corsHeaders() });
 
     const filtered = (settings.ai.scanners || []).filter((s: string) => {
       try { return JSON.parse(s).id !== id; }
       catch { return true; }
     });
 
-    await Settings.updateOne(
-      { user: user._id },
-      { $set: { "ai.scanners": filtered } }
-    );
+    await Settings.updateOne({ user: userId }, { $set: { "ai.scanners": filtered } });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, { headers: corsHeaders() });
   } catch (e: any) {
     console.error("DELETE /api/scanner error:", e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders() });
   }
 }

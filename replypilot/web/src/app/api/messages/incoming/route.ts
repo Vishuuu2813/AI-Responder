@@ -11,7 +11,17 @@ import { generateAIReply } from "@/lib/ai/openai";
 import { matchManualRule } from "@/lib/ai/rules-engine";
 import { isWithinBusinessHours } from "@/lib/utils/business-hours";
 
-// POST /api/messages/incoming — Called by Android app
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, x-api-key, Authorization",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: CORS });
+}
+
+// POST /api/messages/incoming — Called by Android app or Chrome extension
 export async function POST(req: NextRequest) {
   try {
     // Verify API key from Android app
