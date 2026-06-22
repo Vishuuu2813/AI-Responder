@@ -43,12 +43,34 @@ function phoneFromId(msgId) {
   const m = msgId.match(/(?:false|true)_([^@]+)@/);
   return m ? m[1] : null;
 }
+function cleanName(str) {
+  if (!str) return "";
+  return str.toLowerCase().replace(/[^\w]/g, "").trim();
+}
+
 function getContactName() {
   const mainHeader = document.querySelector('#main header');
   if (!mainHeader) return "Unknown";
-  return mainHeader.querySelector('[data-testid="conversation-info-header-chat-title"] span')?.innerText?.trim()
-    || mainHeader.querySelector('span[title]')?.getAttribute("title")
-    || "Unknown";
+  
+  const selectors = [
+    '[data-testid="conversation-info-header-chat-title"] span',
+    '[data-testid="conversation-info-header-chat-title"]',
+    'span[title]',
+    '[dir="auto"]',
+    'span'
+  ];
+
+  for (const s of selectors) {
+    const el = mainHeader.querySelector(s);
+    if (el) {
+      const val = el.getAttribute("title") || el.innerText || "";
+      const cleaned = val.trim();
+      if (cleaned && cleaned.length > 1 && cleaned !== "click here for contact info") {
+        return cleaned;
+      }
+    }
+  }
+  return "Unknown";
 }
 
 function safeClick(element) {
@@ -260,10 +282,12 @@ async function pollUnread() {
 
       // Verify if chat opened (retry up to 3s)
       let chatOpened = false;
+      const cleanChat = cleanName(chatName);
       for (let k = 0; k < 6; k++) {
         await sleep(500);
         const currentName = getContactName();
-        if (currentName.toLowerCase() === chatName.toLowerCase()) {
+        const cleanCurrent = cleanName(currentName);
+        if (cleanCurrent && cleanChat && (cleanCurrent.includes(cleanChat) || cleanChat.includes(cleanCurrent))) {
           chatOpened = true;
           break;
         }
