@@ -38,18 +38,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
     }
 
-    let bodyText = "";
-    let body: any = {};
-    try {
-      bodyText = await req.text();
-      body = JSON.parse(bodyText);
-    } catch (parseErr: any) {
-      throw new Error(`JSON parse failed. Raw body: "${bodyText}". Error: ${parseErr.message}`);
-    }
+    const body = await req.json();
     const { contactName, contactPhone, content, source, isGroup, groupName } = body;
 
     if (!contactName || !contactPhone || !content || !source) {
-      return NextResponse.json({ error: "Missing required fields", rawBody: bodyText }, { status: 400 });
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
     // Get user settings
@@ -215,8 +208,7 @@ export async function POST(req: NextRequest) {
     console.error("Incoming message error:", error);
     return NextResponse.json({
       error: "Internal server error",
-      message: error?.message || String(error),
-      stack: error?.stack || null
+      message: error?.message || "Unknown error"
     }, { status: 500 });
   }
 }
