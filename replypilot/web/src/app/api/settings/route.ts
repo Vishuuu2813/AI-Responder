@@ -21,6 +21,20 @@ export async function GET(req: NextRequest) {
   }
 }
 
+function flattenObject(obj: any, prefix = ""): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      Object.assign(result, flattenObject(value, path));
+    } else {
+      result[path] = value;
+    }
+  }
+  return result;
+}
+
 export async function PUT(req: NextRequest) {
   try {
     const session = await auth();
@@ -32,11 +46,17 @@ export async function PUT(req: NextRequest) {
     await connectDB();
     const body = await req.json();
 
-    const settings = await Settings.findOneAndUpdate(
-      { user: userId },
-      { $set: body },
-      { new: true, upsert: true, runValidators: true }
-    );
+    let settings = await Settings.findOne({ user: userId });
+    if (!settings) {
+      settings = new Settings({ user: userId });
+    }
+
+    const flatBody = flattenObject(body);
+    for (const key of Object.keys(flatBody)) {
+      settings.set(key, flatBody[key]);
+    }
+
+    await settings.save();
 
     return NextResponse.json({ settings });
   } catch (error: any) {
