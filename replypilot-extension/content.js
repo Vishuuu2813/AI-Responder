@@ -58,10 +58,41 @@ function safeClick(element) {
     const ev = new MouseEvent(name, {
       bubbles: true,
       cancelable: true,
-      view: window
+      view: window,
+      buttons: 1,
+      button: 0
     });
     element.dispatchEvent(ev);
   }
+  if (typeof element.click === "function") {
+    try { element.click(); } catch(e) {}
+  }
+}
+
+function clickChatItem(item) {
+  if (!item) return;
+  // Try parent row/list-item
+  const parent = item.closest('[role="row"]') 
+    || item.closest('[data-testid="chat-list-item"]') 
+    || item.closest('[role="listitem"]');
+  if (parent) {
+    safeClick(parent);
+  }
+
+  // Try name element
+  const nameEl = item.querySelector('span[title]') || item.querySelector('[dir]');
+  if (nameEl) {
+    safeClick(nameEl);
+  }
+
+  // Try gridcell sibling/parent
+  const cell = item.closest('[role="gridcell"]') || item.querySelector('[role="gridcell"]');
+  if (cell) {
+    safeClick(cell);
+  }
+
+  // Try the element itself
+  safeClick(item);
 }
 
 // ── Send text ─────────────────────────────────────────────────
@@ -225,7 +256,7 @@ async function pollUnread() {
 
       console.log(TAG,`📩 Unread detected in "${chatName}" — opening`);
       IS_OPENED_BY_POLLER = true;
-      safeClick(item);
+      clickChatItem(item);
 
       // Verify if chat opened (retry up to 3s)
       let chatOpened = false;
@@ -237,8 +268,7 @@ async function pollUnread() {
           break;
         }
         if (k % 2 === 1) {
-          const clickableChild = item.querySelector('[role="gridcell"]') || item.querySelector('span[title]') || item;
-          safeClick(clickableChild);
+          clickChatItem(item);
         }
       }
 
