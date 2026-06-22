@@ -7,6 +7,7 @@ import { Conversation } from "@/models/Conversation";
 import { Settings } from "@/models/Settings";
 import { Analytics } from "@/models/Analytics";
 import { Contact } from "@/models/Contact";
+import { User } from "@/models/User";
 import { generateAIReply } from "@/lib/ai/openai";
 import { matchManualRule } from "@/lib/ai/rules-engine";
 import { isWithinBusinessHours } from "@/lib/utils/business-hours";
@@ -32,7 +33,6 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    const { User } = await import("@/models/User");
     const user = await User.findOne({ apiKey });
     if (!user) {
       return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
@@ -204,9 +204,13 @@ export async function POST(req: NextRequest) {
       delay: delayMs,
       replyMode,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Incoming message error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({
+      error: "Internal server error",
+      message: error?.message || String(error),
+      stack: error?.stack || null
+    }, { status: 500 });
   }
 }
 
