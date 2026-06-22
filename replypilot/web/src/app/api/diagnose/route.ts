@@ -1,75 +1,65 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth/auth";
 import connectDB from "@/lib/db/connect";
-import { User } from "@/models/User";
-import { Settings } from "@/models/Settings";
+import { SystemSettings } from "@/models/SystemSettings";
+import OpenAI from "openai";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const result: any = {
-    authStatus: "pending",
-    dbStatus: "pending",
-    userQueryStatus: "pending",
-    settingsQueryStatus: "pending",
-    session: null,
-    errors: {}
+    step: "start",
+    dbConnected: false,
+    systemSettingsFound: false,
+    apiKeyLength: 0,
+    openaiCallSuccess: false,
+    error: null,
+    stack: null,
+    rawResponseBody: null,
   };
 
-  // 1. Check auth()
   try {
-    const session = await auth();
-    result.authStatus = "success";
-    result.session = session;
-  } catch (err: any) {
-    result.authStatus = "failed";
-    result.errors.auth = err?.message || err?.toString();
-    result.errors.authStack = err?.stack;
-  }
-
-  // 2. Check DB connection
-  try {
+    // 1. Connect DB
+    result.step = "connect_db";
     await connectDB();
-    result.dbStatus = "success";
-  } catch (err: any) {
-    result.dbStatus = "failed";
-    result.errors.db = err?.message || err?.toString();
-    result.errors.dbStack = err?.stack;
-  }
+    result.dbConnected = true;
 
-  // 3. Check User model query
-  try {
-    if (result.dbStatus === "success") {
-      const userCount = await User.countDocuments();
-      result.userQueryStatus = `success (count: ${userCount})`;
-      
-      // If we have a session, let's try querying the specific user
-      if (result.session?.user?.email) {
-        const testUser = await User.findOne({ email: result.session.user.email.toLowerCase() });
-        result.testUserFound = !!testUser;
-        result.userId = testUser?._id?.toString() || null;
+    // 2. Query SystemSettings
+    result.step = "query_system_settings";
+    const sysSettings = await SystemSettings.findOne();
+    result.systemSettingsFound = !!sysSettings;
+
+    const apiKey = sysSettings?.systemApiKey || process.env.OPENAI_API_KEY;
+    result.apiKeyLength = apiKey ? apiKey.length : 0;
+    result.apiKeyPrefix = apiKey ? apiKey.substring(0, 10) : "";
+
+    if (!apiKey) {
+      throw new Error("No API key found in SystemSettings or process.env");
+    }
+
+    // 3. Call OpenAI
+    result.step = "call_openai";
+    const openai = new OpenAI({ apiKey });
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    result.openaiCallSuccess = true;
+    result.openaiResponse = completion.choices[0]?.message?.content || "";
+    result.step = "completed";
+
+  } catch (err: any) {
+    result.error = err?.message || String(err);
+    result.stack = err?.stack || null;
+    
+    // Check if error contains response data (e.g. from fetch response)
+    if (err?.response) {
+      try {
+        result.rawResponseBody = await err.response.text();
+      } catch (textErr) {
+        result.rawResponseBody = "Failed to extract text from response: " + String(textErr);
       }
-    } else {
-      result.userQueryStatus = "skipped (db failed)";
     }
-  } catch (err: any) {
-    result.userQueryStatus = "failed";
-    result.errors.userQuery = err?.message || err?.toString();
-    result.errors.userQueryStack = err?.stack;
-  }
-
-  // 4. Check Settings model query
-  try {
-    if (result.dbStatus === "success") {
-      const settingsCount = await Settings.countDocuments();
-      result.settingsQueryStatus = `success (count: ${settingsCount})`;
-    } else {
-      result.settingsQueryStatus = "skipped (db failed)";
-    }
-  } catch (err: any) {
-    result.settingsQueryStatus = "failed";
-    result.errors.settingsQuery = err?.message || err?.toString();
-    result.errors.settingsQueryStack = err?.stack;
   }
 
   return NextResponse.json(result);
