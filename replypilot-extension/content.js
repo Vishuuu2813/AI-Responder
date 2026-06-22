@@ -6,6 +6,7 @@ let API_KEY = "", API_BASE = "", IS_ENABLED = false, SCANNERS = [], IS_BUSY = fa
 let CURRENT_CHAT = "";
 let IS_OPENED_BY_POLLER = false;
 const IN_FLIGHT = new Set();
+const PROCESSED_IDS = new Set();
 let LAST_SENT_MESSAGE_TEXT = "";
 let LAST_SENT_TIMESTAMP = 0;
 
@@ -380,6 +381,11 @@ async function processMsg(msgEl, opts = {}) {
   const id = msgEl.getAttribute("data-id") || msgEl.getAttribute("data-testid") || "";
   console.log(TAG, "🔍 processMsg called for element ID:", id);
 
+  if (id && PROCESSED_IDS.has(id)) {
+    console.log(TAG, "skip: ID already processed globally", id);
+    return false;
+  }
+
   // Cooldown safety guard: ignore DOM updates within 2 seconds of sending a reply to prevent loop triggers
   if (Date.now() - LAST_SENT_TIMESTAMP < 2000) {
     console.log(TAG, "skip: message processed too close to our last sent message (cooldown active)");
@@ -409,6 +415,16 @@ async function processMsg(msgEl, opts = {}) {
     console.log(TAG, "skip: message in-flight", id);
     return false;
   }
+
+  // Record that we are processing this ID globally
+  if (id) {
+    PROCESSED_IDS.add(id);
+    if (PROCESSED_IDS.size > 1000) {
+      const firstKey = PROCESSED_IDS.values().next().value;
+      PROCESSED_IDS.delete(firstKey);
+    }
+  }
+
   IN_FLIGHT.add(id);
 
   if (!API_KEY || !API_BASE) {
@@ -587,7 +603,7 @@ async function pollUnread() {
           continue;
         }
 
-        const ok = await processMsg(lastMsg, { force: true });
+        const ok = await processMsg(lastMsg);
         if (ok) {
           CHAT_REPLIED[chatName] = Date.now();
           console.log(TAG, `✅ Replied in "${chatName}"`);
