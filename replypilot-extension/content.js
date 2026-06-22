@@ -7,6 +7,7 @@ let CURRENT_CHAT = "";
 let IS_OPENED_BY_POLLER = false;
 const IN_FLIGHT = new Set();
 let LAST_SENT_MESSAGE_TEXT = "";
+let LAST_SENT_TIMESTAMP = 0;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -288,11 +289,13 @@ async function sendText(text) {
   const btn = getSend();
   if (btn && !btn.disabled) {
     LAST_SENT_MESSAGE_TEXT = text;
+    LAST_SENT_TIMESTAMP = Date.now();
     btn.click();
     console.log(TAG, "🚀 Sent reply:", text.slice(0, 50));
     return true;
   }
   LAST_SENT_MESSAGE_TEXT = text;
+  LAST_SENT_TIMESTAMP = Date.now();
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
   console.log(TAG, "🚀 Sent reply (Enter):", text.slice(0, 50));
   return true;
@@ -385,6 +388,12 @@ async function processMsg(msgEl, opts = {}) {
   const force = !!opts.force;
   const id = msgEl.getAttribute("data-id") || msgEl.getAttribute("data-testid") || "";
   console.log(TAG, "🔍 processMsg called for element ID:", id);
+
+  // Cooldown safety guard: ignore DOM updates within 2 seconds of sending a reply to prevent loop triggers
+  if (Date.now() - LAST_SENT_TIMESTAMP < 2000) {
+    console.log(TAG, "skip: message processed too close to our last sent message (cooldown active)");
+    return false;
+  }
 
   const chatName = getContactName();
   const isOut = isOutgoingMessage(msgEl, chatName);
