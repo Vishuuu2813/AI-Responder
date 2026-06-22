@@ -6,6 +6,7 @@ let API_KEY = "", API_BASE = "", IS_ENABLED = false, SCANNERS = [], IS_BUSY = fa
 let CURRENT_CHAT = "";
 let IS_OPENED_BY_POLLER = false;
 const IN_FLIGHT = new Set();
+let LAST_SENT_MESSAGE_TEXT = "";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -136,29 +137,57 @@ function isOutgoingMessage(msgEl, chatName) {
   const rowIn = msgEl.closest('.message-in, [class*="message-in"], [class*="-in"]');
   if (rowIn) return false;
 
-  // 2. Check for checkmarks/ticks (only present in outgoing messages)
-  const hasCheckmark = msgEl.querySelector('[data-testid="msg-check"], [data-testid="msg-dblcheck"], [data-testid="status-check"], [data-testid="status-dblcheck"], [data-testid="msg-check-light"], [data-testid="msg-dblcheck-light"]');
+  // 2. Check computed style alignment of the message container or bubble
+  try {
+    const parent = msgEl.closest('[data-testid^="conv-msg-"]') || msgEl;
+    const computed = window.getComputedStyle(parent);
+    const alignSelf = computed.alignSelf || '';
+    const justifySelf = computed.justifySelf || '';
+    const justifyItems = computed.justifyItems || '';
+    const textAlign = computed.textAlign || '';
+    const float = computed.float || '';
+    
+    if (alignSelf.includes('end') || justifySelf.includes('end') || justifyItems.includes('end') || textAlign.includes('right') || float === 'right') {
+      return true;
+    }
+  } catch (e) {}
+
+  // 3. Check for checkmarks/ticks (only present in outgoing messages)
+  const hasCheckmark = msgEl.querySelector('[data-testid="msg-check"], [data-testid="msg-dblcheck"], [data-testid="status-check"], [data-testid="status-dblcheck"], [data-testid="msg-check-light"], [data-testid="msg-dblcheck-light"], [data-testid="status-time"]');
   if (hasCheckmark) return true;
 
-  // 3. Check data-pre-plain-text if available
+  // 4. Check data-pre-plain-text if available
   const copyable = msgEl.querySelector('.copyable-text') || msgEl.closest('.copyable-text') || msgEl;
   if (copyable && typeof copyable.getAttribute === 'function') {
     const preText = copyable.getAttribute('data-pre-plain-text') || '';
     if (preText) {
-      if (preText.toLowerCase().includes('you:')) return true;
-      if (chatName) {
-        const normalizedChatName = chatName.toLowerCase().trim();
-        if (preText.toLowerCase().includes(normalizedChatName)) {
-          return false; // Incoming
+      // Regex matches sender name between the closing square bracket and the colon
+      const match = preText.match(/\]\s*([^:]+):/);
+      if (match) {
+        const senderName = match[1].trim().toLowerCase();
+        const cleanSender = cleanName(senderName);
+        const cleanChat = cleanName(chatName);
+
+        // Common outgoing sender names
+        if (["you", "aap", "आप", "me", "mainmumbai", "mainmumbaisupport"].includes(cleanSender)) {
+          return true;
+        }
+
+        // If it's a 1-on-1 chat, the chatName matches the contact name.
+        // If the sender name doesn't match the contact, it must be outgoing (us)
+        if (cleanChat && cleanSender && cleanSender !== cleanChat) {
+          // Verify we aren't in a group chat by checking header contents for commas or 'group'
+          const headerText = document.querySelector('#main header')?.innerText || '';
+          const isGroup = headerText.includes(',') || headerText.toLowerCase().includes('group');
+          if (!isGroup) {
+            return true;
+          }
         }
       }
+      
+      // Fallback standard checks
+      if (preText.toLowerCase().includes('you:')) return true;
     }
-  }
-
-  // 4. Default fallback: check if align-self/justify-self indicating right-aligned layout
-  const style = msgEl.getAttribute('style') || '';
-  if (style.includes('justify-content: flex-end') || style.includes('align-self: flex-end')) {
-    return true;
   }
 
   return false;
@@ -258,10 +287,12 @@ async function sendText(text) {
   await sleep(600);
   const btn = getSend();
   if (btn && !btn.disabled) {
+    LAST_SENT_MESSAGE_TEXT = text;
     btn.click();
     console.log(TAG, "🚀 Sent reply:", text.slice(0, 50));
     return true;
   }
+  LAST_SENT_MESSAGE_TEXT = text;
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
   console.log(TAG, "🚀 Sent reply (Enter):", text.slice(0, 50));
   return true;
@@ -437,6 +468,10 @@ async function processMsg(msgEl, opts = {}) {
 
   const text = getMessageText(msgEl);
   console.log(TAG, "📝 Text extracted:", text);
+  if (text && text === LAST_SENT_MESSAGE_TEXT) {
+    console.log(TAG, "skip: message text matches our last sent message");
+    return false;
+  }
   if (!text || text.length < 1) {
     console.log(TAG, "skip: empty text message", id);
     IN_FLIGHT.delete(id);
