@@ -1,10 +1,11 @@
-// ReplyPilot Extension — content.js (v5 - Final & Robust)
+// ReplyPilot Extension — content.js (v6)
 const TAG = "[ReplyPilot]";
 const LAST_PROCESSED_MSG_ID = {}; // phone -> last processed incoming message ID
 const CHAT_REPLIED = {}; // chatName -> lastClickedTimestamp
 let API_KEY = "", API_BASE = "", IS_ENABLED = false, SCANNERS = [], IS_BUSY = false;
 let CURRENT_CHAT = "";
 let IS_OPENED_BY_POLLER = false;
+const IN_FLIGHT = new Set();
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -93,41 +94,84 @@ function safeClick(element) {
 
 function clickChatItem(item) {
   if (!item) return;
-  // Try parent row/list-item
-  const parent = item.closest('[role="row"]') 
-    || item.closest('[data-testid="chat-list-item"]') 
-    || item.closest('[role="listitem"]');
-  if (parent) {
-    safeClick(parent);
-  }
+  try { item.scrollIntoView({ block: "center", behavior: "instant" }); } catch {}
 
-  // Try name element
-  const nameEl = item.querySelector('span[title]') || item.querySelector('[dir]');
-  if (nameEl) {
-    safeClick(nameEl);
-  }
+  const targets = [
+    item.closest('[data-testid="cell-frame-container"]'),
+    item.closest('[role="listitem"]'),
+    item.closest('[role="row"]'),
+    item.closest('[data-testid="chat-list-item"]'),
+    item.querySelector('span[title]'),
+    item.closest('[role="gridcell"]'),
+    item
+  ].filter(Boolean);
 
-  // Try gridcell sibling/parent
-  const cell = item.closest('[role="gridcell"]') || item.querySelector('[role="gridcell"]');
-  if (cell) {
-    safeClick(cell);
-  }
+  for (const el of targets) safeClick(el);
+}
 
-  // Try the element itself
-  safeClick(item);
+function getIncomingMessages() {
+  const main = document.querySelector("#main");
+  if (!main) return [];
+  return [...main.querySelectorAll("[data-id]")].filter(m => {
+    const id = m.getAttribute("data-id") || "";
+    if (!id || id.startsWith("true_")) return false;
+    if (m.classList.contains("message-out")) return false;
+    if (m.closest("#pane-side")) return false;
+    return true;
+  });
+}
+
+function getMessageText(msgEl) {
+  const selectors = [
+    "span.selectable-text span[dir]",
+    "span.selectable-text",
+    "[data-testid='conversation-text'] span",
+    "div.copyable-text span"
+  ];
+  for (const s of selectors) {
+    const el = msgEl.querySelector(s);
+    const t = el?.innerText?.trim();
+    if (t) return t;
+  }
+  return msgEl.innerText?.trim() || "";
 }
 
 // ── Send text ─────────────────────────────────────────────────
 async function sendText(text) {
   const input = getInput();
-  if (!input) return false;
+  if (!input) { console.warn(TAG, "sendText: input not found"); return false; }
   input.focus();
-  try { await navigator.clipboard.writeText(text); document.execCommand("paste"); }
-  catch { try { document.execCommand("insertText", false, text); } catch { input.innerText = text; input.dispatchEvent(new InputEvent("input",{bubbles:true})); } }
-  await sleep(450);
+  input.click();
+
+  let inserted = false;
+  try {
+    document.execCommand("selectAll", false, null);
+    document.execCommand("delete", false, null);
+    inserted = document.execCommand("insertText", false, text);
+  } catch {}
+
+  if (!inserted) {
+    try {
+      await navigator.clipboard.writeText(text);
+      document.execCommand("paste");
+      inserted = true;
+    } catch {
+      input.textContent = text;
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+    }
+  } else {
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+  }
+
+  await sleep(600);
   const btn = getSend();
-  if (btn) { btn.click(); console.log(TAG, "✅ Sent:", text.slice(0,50)); return true; }
-  input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",keyCode:13,bubbles:true}));
+  if (btn && !btn.disabled) {
+    btn.click();
+    console.log(TAG, "✅ Sent:", text.slice(0, 50));
+    return true;
+  }
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
+  console.log(TAG, "✅ Sent (Enter):", text.slice(0, 50));
   return true;
 }
 
@@ -174,8 +218,12 @@ async function callTextAPI(text, phone, name) {
       method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY},
       body: JSON.stringify({ content:text, contactPhone:phone, contactName:name||phone, source:"whatsapp" })
     });
-    if (r.ok) { const d=await r.json(); return d.reply||null; }
-    console.error(TAG,`API ${r.status}:`, await r.text());
+    if (r.ok) {
+      const d = await r.json();
+      if (!d.reply) console.warn(TAG, "API returned no reply:", d.reason || "unknown");
+      return d.reply || null;
+    }
+    console.error(TAG, `API ${r.status}:`, await r.text());
   } catch(e) { console.error(TAG,"callTextAPI:",e.message); }
   return null;
 }
@@ -193,40 +241,61 @@ async function callPayAPI(b64, phone, name) {
 }
 
 // ── Process one message ───────────────────────────────────────
-async function processMsg(msgEl) {
-  const id = msgEl.getAttribute("data-id")||"";
-  if (!id || id.startsWith("true_") || msgEl.classList.contains("message-out")) return;
+async function processMsg(msgEl, opts = {}) {
+  const force = !!opts.force;
+  const id = msgEl.getAttribute("data-id") || "";
+  if (!id || id.startsWith("true_") || msgEl.classList.contains("message-out")) return false;
 
   const phone = phoneFromId(id);
-  if (!phone) return;
+  if (!phone) { console.warn(TAG, "skip: no phone in id", id.slice(0, 40)); return false; }
 
-  // If already processed this message ID, skip to avoid duplicate replies
-  if (LAST_PROCESSED_MSG_ID[phone] === id) return;
-  LAST_PROCESSED_MSG_ID[phone] = id;
+  if (LAST_PROCESSED_MSG_ID[phone] === id && !force) {
+    console.log(TAG, "skip: already processed", id.slice(0, 30));
+    return false;
+  }
+  if (IN_FLIGHT.has(id)) return false;
+  IN_FLIGHT.add(id);
+
+  if (!API_KEY || !API_BASE) {
+    console.warn(TAG, "skip: API not configured — open extension popup and save API URL + key");
+    IN_FLIGHT.delete(id);
+    return false;
+  }
 
   const name = getContactName();
 
-  // Detect image
   const hasImg = msgEl.querySelector("img[src]:not([src*='emoji']):not([src*='profile'])")
     || msgEl.querySelector("[data-testid='media-url-provider']");
 
   if (hasImg) {
-    console.log(TAG,"📷 Image from",phone);
+    console.log(TAG, "📷 Image from", phone);
+    LAST_PROCESSED_MSG_ID[phone] = id;
     const b64 = await imgBase64(msgEl);
-    const reply = b64 ? await callPayAPI(b64,phone,name)
+    const reply = b64 ? await callPayAPI(b64, phone, name)
       : "📸 *Payment screenshot bhejo!*\n\nPoints add karwane ke liye payment confirmation screenshot bhejo.";
-    if (reply) { await sleep(800); await sendText(reply); }
-    return;
+    if (reply) { await sleep(800); await sendText(reply); IN_FLIGHT.delete(id); return true; }
+    IN_FLIGHT.delete(id);
+    return false;
   }
 
-  // Text
-  const text = msgEl.querySelector("span.selectable-text span[dir]")?.innerText?.trim()
-    || msgEl.querySelector("span.selectable-text")?.innerText?.trim() || "";
-  if (!text||text.length<1) return;
+  const text = getMessageText(msgEl);
+  if (!text || text.length < 1) {
+    console.log(TAG, "skip: empty text (sticker/audio?) id:", id.slice(0, 30));
+    IN_FLIGHT.delete(id);
+    return false;
+  }
 
-  console.log(TAG,`💬 "${text.slice(0,50)}" | phone:${phone}`);
+  console.log(TAG, `💬 "${text.slice(0, 50)}" | phone:${phone}`);
   const reply = await callTextAPI(text, phone, name);
-  if (reply && reply!=="SCANNER") { await sleep(800); await sendText(reply); }
+  if (reply && reply !== "SCANNER") {
+    await sleep(800);
+    const sent = await sendText(reply);
+    if (sent) LAST_PROCESSED_MSG_ID[phone] = id;
+    IN_FLIGHT.delete(id);
+    return sent;
+  }
+  IN_FLIGHT.delete(id);
+  return false;
 }
 
 // ── Watch for chat header changes (user switching chats manually) ──
@@ -239,17 +308,14 @@ function watchChatChange() {
       if (!IS_OPENED_BY_POLLER) {
         // User opened this chat manually. Mark its last message as seen so we don't reply to history.
         setTimeout(() => {
-          const all = [...document.querySelectorAll("[data-id]")].filter(m => {
-            const id = m.getAttribute("data-id") || "";
-            return !id.startsWith("true_") && !m.classList.contains("message-out");
-          });
+          const all = getIncomingMessages();
           if (all.length > 0) {
             const lastMsg = all[all.length - 1];
             const id = lastMsg.getAttribute("data-id");
             const phone = phoneFromId(id);
             if (phone) {
               LAST_PROCESSED_MSG_ID[phone] = id;
-              console.log(TAG, `Manual open: Marked ${id} for ${phone} as processed`);
+              console.log(TAG, `Manual open: marked history as seen for ${phone}`);
             }
           }
         }, 1000);
@@ -271,12 +337,10 @@ async function pollUnread() {
       const chatName = item.querySelector("span[title]")?.getAttribute("title")||"";
       if (!chatName) continue;
 
-      // Deduplication cooldown
-      const lastTime = CHAT_REPLIED[chatName]||0;
-      if (Date.now()-lastTime < 10000) continue; 
-      CHAT_REPLIED[chatName] = Date.now();
+      const lastTime = CHAT_REPLIED[chatName] || 0;
+      if (Date.now() - lastTime < 8000) continue;
 
-      console.log(TAG,`📩 Unread detected in "${chatName}" — opening`);
+      console.log(TAG, `📩 Unread detected in "${chatName}" — opening`);
       IS_OPENED_BY_POLLER = true;
       clickChatItem(item);
 
@@ -302,21 +366,20 @@ async function pollUnread() {
         continue;
       }
 
-      // Wait for messages to load (retry up to 3s)
       let lastMsg = null;
-      for (let i=0; i<6; i++) {
+      for (let i = 0; i < 8; i++) {
         await sleep(500);
-        const all = [...document.querySelectorAll("[data-id]")].filter(m=>{
-          const id=m.getAttribute("data-id")||"";
-          return !id.startsWith("true_") && !m.classList.contains("message-out");
-        });
-        if (all.length>0) { lastMsg = all[all.length-1]; break; }
+        const all = getIncomingMessages();
+        if (all.length > 0) { lastMsg = all[all.length - 1]; break; }
       }
 
       if (lastMsg) {
-        await processMsg(lastMsg);
+        const ok = await processMsg(lastMsg, { force: true });
+        if (ok) CHAT_REPLIED[chatName] = Date.now();
+        else console.warn(TAG, "Unread chat opened but reply not sent:", chatName);
       } else {
         console.warn(TAG, "No incoming messages found in open chat:", chatName);
+        CHAT_REPLIED[chatName] = Date.now();
       }
 
       IS_OPENED_BY_POLLER = false;
@@ -357,23 +420,15 @@ chrome.storage.onChanged.addListener(c=>{
 (async()=>{
   await loadSettings();
   await loadScanners();
-  
-  // Mark current open chat last message as processed so we don't auto-reply to history
-  const all = [...document.querySelectorAll("[data-id]")].filter(m => {
-    const id = m.getAttribute("data-id") || "";
-    return !id.startsWith("true_") && !m.classList.contains("message-out");
-  });
-  if (all.length > 0) {
-    const lastMsg = all[all.length - 1];
-    const id = lastMsg.getAttribute("data-id");
-    const phone = phoneFromId(id);
-    if (phone) {
-      LAST_PROCESSED_MSG_ID[phone] = id;
-    }
+
+  if (!API_KEY || !API_BASE) {
+    console.warn(TAG, "⚠️ API not configured — click extension icon, enter API URL + key, Save");
+  } else {
+    console.log(TAG, "API configured:", API_BASE);
   }
 
   startObserver();
   watchChatChange();
   setInterval(pollUnread, 4000);
-  console.log(TAG,`✅ ReplyPilot extension initialized successfully.`);
+  console.log(TAG, "✅ ReplyPilot extension initialized successfully.");
 })();
