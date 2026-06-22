@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "ReplyPilot — WhatsApp Auto Reply",
+  "version": "1.0.0",
+  "description": "Automate WhatsApp Web replies, verify payment screenshots, and auto-send QR codes.",
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "clipboardWrite",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ReplyPilot"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

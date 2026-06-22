@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ReplyPilot</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="popup">
+
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <div class="logo-icon">🤖</div>
+        <div>
+          <div class="logo-title">ReplyPilot</div>
+          <div class="logo-sub">WhatsApp Automation</div>
+        </div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="enableToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Status Badge -->
+    <div class="status-wrap">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-text" id="statusText">Checking...</span>
+    </div>
+
+    <!-- API Settings -->
+    <div class="section">
+      <label class="label">API Server URL</label>
+      <input type="text" id="apiBase" class="input" placeholder="https://your-app.railway.app" />
+
+      <label class="label" style="margin-top:10px;">API Key</label>
+      <input type="text" id="apiKey" class="input" placeholder="rp_xxxxxxxxxxxxxxxx" />
+
+      <button id="saveBtn" class="btn-save">💾 Save Settings</button>
+      <div id="saveMsg" class="save-msg"></div>
+    </div>
+
+    <!-- Features -->
+    <div class="features">
+      <div class="feature-row">
+        <span>💬 Auto Text Reply</span>
+        <span class="badge active">Active</span>
+      </div>
+      <div class="feature-row">
+        <span>💰 Payment Verify</span>
+        <span class="badge active">Active</span>
+      </div>
+      <div class="feature-row">
+        <span>📱 QR Auto-Send</span>
+        <span class="badge" id="scannerBadge">-</span>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <a id="dashboardLink" href="#" target="_blank">🔗 Open Dashboard</a>
+    </div>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
