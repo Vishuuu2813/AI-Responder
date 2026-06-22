@@ -40,9 +40,24 @@ function phoneFromId(msgId) {
   return m ? m[1] : null;
 }
 function getContactName() {
-  return document.querySelector('header [data-testid="conversation-info-header-chat-title"] span')?.innerText?.trim()
-    || document.querySelector('header span[title]')?.getAttribute("title")
+  const mainHeader = document.querySelector('#main header');
+  if (!mainHeader) return "Unknown";
+  return mainHeader.querySelector('[data-testid="conversation-info-header-chat-title"] span')?.innerText?.trim()
+    || mainHeader.querySelector('span[title]')?.getAttribute("title")
     || "Unknown";
+}
+
+function safeClick(element) {
+  if (!element) return;
+  const events = ["mousedown", "mouseup", "click"];
+  for (const name of events) {
+    const ev = new MouseEvent(name, {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    });
+    element.dispatchEvent(ev);
+  }
 }
 
 // ── Mark ALL current messages as seen (prevent old msg replies) ─
@@ -193,11 +208,32 @@ async function pollUnread() {
       if (Date.now()-lastTime < 60000) continue;
 
       console.log(TAG,`📩 Unread: "${chatName}" — clicking`);
-      item.click();
+      safeClick(item);
 
-      // Wait for messages to load (retry up to 4s)
+      // Verify if chat opened (retry up to 3s)
+      let chatOpened = false;
+      for (let k = 0; k < 6; k++) {
+        await sleep(500);
+        const currentName = getContactName();
+        if (currentName.toLowerCase() === chatName.toLowerCase()) {
+          chatOpened = true;
+          break;
+        }
+        // Try clicking alternative children/parent just in case
+        if (k % 2 === 1) {
+          const clickableChild = item.querySelector('[role="gridcell"]') || item.querySelector('span[title]') || item;
+          safeClick(clickableChild);
+        }
+      }
+
+      if (!chatOpened) {
+        console.warn(TAG, `Could not open chat: "${chatName}"`);
+        continue;
+      }
+
+      // Wait for messages to load (retry up to 3s)
       let msgs = [];
-      for (let i=0; i<8; i++) {
+      for (let i=0; i<6; i++) {
         await sleep(500);
         const all = [...document.querySelectorAll("[data-id]")].filter(m=>{
           const id=m.getAttribute("data-id")||"";
