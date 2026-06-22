@@ -1,4 +1,4 @@
-// ReplyPilot Extension — content.js (v7)
+// ReplyPilot Extension — content.js (v8)
 const TAG = "[ReplyPilot]";
 const LAST_PROCESSED_MSG_ID = {}; // phone -> last processed incoming message ID
 const CHAT_REPLIED = {}; // chatName -> lastClickedTimestamp
@@ -38,32 +38,30 @@ function getSend() {
     || document.querySelector('button[aria-label="Send"]');
 }
 
-// ── Check if data-id is a known non-message container (32-char uppercase hex) ──
-function isContainerId(id) {
-  // Container IDs are exactly 32 uppercase hex chars like "AC3E6E90AEB0D0A491B39F1D2AA745F9"
-  return /^[A-F0-9]{32}$/.test(id);
-}
-
 // ── Extract phone from chat URL or header (fallback for unsaved/new format msgs) ──
 function phoneFromContext() {
   // WhatsApp Web URL sometimes contains the JID after open/
   const urlMatch = window.location.href.match(/\/([0-9]{10,15})/);
   if (urlMatch) return urlMatch[1];
+  
   // For unsaved contacts, the header title IS the phone number
   const name = getContactName();
   const cleaned = name.replace(/[\s\+\-\(\)]/g, "");
   if (/^[0-9]{10,15}$/.test(cleaned)) return cleaned;
-  return null;
+  
+  // If saved contact, return the name itself as a unique identifier for mapping
+  return name !== "Unknown" ? name : null;
 }
 
 // Extract phone/group ID from data-id, or fall back to chat context
 function phoneFromId(msgId) {
-  if (!msgId) return null;
+  if (!msgId) return phoneFromContext();
   const m = msgId.match(/(?:false|true)_([^@]+)@/);
   if (m) return m[1];
-  // New short-format IDs don't embed the phone — get from context
+  // New format or random hash IDs don't embed the phone — get from context
   return phoneFromContext();
 }
+
 function cleanName(str) {
   if (!str) return "";
   return str.toLowerCase().replace(/[^\w]/g, "").trim();
@@ -76,9 +74,9 @@ function getContactName() {
   const selectors = [
     '[data-testid="conversation-info-header-chat-title"] span',
     '[data-testid="conversation-info-header-chat-title"]',
+    '[data-testid="chat-title"]',
     'span[title]',
-    '[dir="auto"]',
-    'span'
+    '[dir="auto"]'
   ];
 
   for (const s of selectors) {
@@ -86,7 +84,7 @@ function getContactName() {
     if (el) {
       const val = el.getAttribute("title") || el.innerText || "";
       const cleaned = val.trim();
-      if (cleaned && cleaned.length > 1 && cleaned !== "click here for contact info") {
+      if (cleaned && cleaned.length > 1 && cleaned !== "click here for contact info" && !cleaned.toLowerCase().includes("typing") && !cleaned.toLowerCase().includes("online")) {
         return cleaned;
       }
     }
@@ -129,26 +127,89 @@ function clickChatItem(item) {
   for (const el of targets) safeClick(el);
 }
 
-function getIncomingMessages() {
+// ── Identify Outgoing vs Incoming ──────────────────────────────
+function isOutgoingMessage(msgEl, chatName) {
+  // 1. Check classes on the element or its closest row/parent for "message-out"
+  const rowOut = msgEl.closest('.message-out, [class*="message-out"], [class*="-out"]');
+  if (rowOut) return true;
+
+  const rowIn = msgEl.closest('.message-in, [class*="message-in"], [class*="-in"]');
+  if (rowIn) return false;
+
+  // 2. Check for checkmarks/ticks (only present in outgoing messages)
+  const hasCheckmark = msgEl.querySelector('[data-testid="msg-check"], [data-testid="msg-dblcheck"], [data-testid="status-check"], [data-testid="status-dblcheck"], [data-testid="msg-check-light"], [data-testid="msg-dblcheck-light"]');
+  if (hasCheckmark) return true;
+
+  // 3. Check data-pre-plain-text if available
+  const copyable = msgEl.querySelector('.copyable-text') || msgEl.closest('.copyable-text') || msgEl;
+  if (copyable && typeof copyable.getAttribute === 'function') {
+    const preText = copyable.getAttribute('data-pre-plain-text') || '';
+    if (preText) {
+      if (preText.toLowerCase().includes('you:')) return true;
+      if (chatName) {
+        const normalizedChatName = chatName.toLowerCase().trim();
+        if (preText.toLowerCase().includes(normalizedChatName)) {
+          return false; // Incoming
+        }
+      }
+    }
+  }
+
+  // 4. Default fallback: check if align-self/justify-self indicating right-aligned layout
+  const style = msgEl.getAttribute('style') || '';
+  if (style.includes('justify-content: flex-end') || style.includes('align-self: flex-end')) {
+    return true;
+  }
+
+  return false;
+}
+
+// ── Get all message elements in active chat de-duplicated ───────
+function getAllMessageElements() {
   const main = document.querySelector("#main");
   if (!main) return [];
+  
+  // Query stable message elements (conv-msg-, copyable-text, and data-id elements)
+  const rawList = main.querySelectorAll('[data-testid^="conv-msg-"], .copyable-text, [data-id]');
+  const uniqueMessages = [];
+  const seenIds = new Set();
+  const seenElRef = new Set();
+  
+  for (const el of rawList) {
+    let msgContainer = el.closest('[data-testid^="conv-msg-"], [data-id]') || el;
+    
+    // De-duplicate by DOM element reference
+    if (seenElRef.has(msgContainer)) continue;
+    seenElRef.add(msgContainer);
 
-  // PRIMARY: Use .message-in CSS class — works for both saved & unsaved contacts,
-  // and for both old and new WhatsApp Web data-id formats
-  const byClass = [...main.querySelectorAll(".message-in")].filter(
-    m => !m.closest("#pane-side")
-  );
-  if (byClass.length > 0) return byClass;
+    // De-duplicate by ID if present
+    const id = msgContainer.getAttribute("data-id") || msgContainer.getAttribute("data-testid") || "";
+    if (id) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+    }
+    
+    uniqueMessages.push(msgContainer);
+  }
+  return uniqueMessages;
+}
 
-  // FALLBACK: data-id approach, skip known 32-char container IDs
-  return [...main.querySelectorAll("[data-id]")].filter(m => {
-    const id = m.getAttribute("data-id") || "";
-    if (!id || id.startsWith("true_")) return false;
-    if (isContainerId(id)) return false;  // skip non-message containers
-    if (m.classList.contains("message-out")) return false;
-    if (m.closest("#pane-side")) return false;
-    return true;
-  });
+// ── Check if the last message in chat is outgoing (to prevent loops) ─
+function isLastMessageOutgoing() {
+  const all = getAllMessageElements();
+  if (all.length === 0) return false;
+  
+  const lastEl = all[all.length - 1];
+  const chatName = getContactName();
+  return isOutgoingMessage(lastEl, chatName);
+}
+
+function getIncomingMessages() {
+  const chatName = getContactName();
+  const all = getAllMessageElements();
+  const incoming = all.filter(m => !isOutgoingMessage(m, chatName));
+  console.log(TAG, `🔍 getIncomingMessages: total=${all.length}, incoming=${incoming.length}`);
+  return incoming;
 }
 
 function getMessageText(msgEl) {
@@ -188,6 +249,7 @@ async function sendText(text) {
     } catch {
       input.textContent = text;
       input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+      inserted = true;
     }
   } else {
     input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
@@ -197,11 +259,11 @@ async function sendText(text) {
   const btn = getSend();
   if (btn && !btn.disabled) {
     btn.click();
-    console.log(TAG, "✅ Sent:", text.slice(0, 50));
+    console.log(TAG, "🚀 Sent reply:", text.slice(0, 50));
     return true;
   }
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
-  console.log(TAG, "✅ Sent (Enter):", text.slice(0, 50));
+  console.log(TAG, "🚀 Sent reply (Enter):", text.slice(0, 50));
   return true;
 }
 
@@ -214,7 +276,7 @@ async function sendImage(b64) {
     const inp = getInput(); if (!inp) return;
     inp.focus(); await sleep(300);
     document.execCommand("paste"); await sleep(800);
-    getSend()?.click(); console.log(TAG,"✅ Image sent");
+    getSend()?.click(); console.log(TAG,"🚀 Image sent");
   } catch(e) { console.error(TAG,"sendImage err:",e.message); }
 }
 
@@ -241,52 +303,81 @@ async function callTextAPI(text, phone, name) {
   if (!phone||phone.length<5) { console.warn(TAG,"Invalid phone, skip"); return null; }
 
   const sc = matchScanner(text);
-  if (sc) { await sleep(800); await sendImage(sc.imageBase64); return "SCANNER"; }
+  if (sc) { 
+    console.log(TAG, "🔍 Match found for local scanner keywords. Sending scanner image...");
+    await sleep(800); 
+    await sendImage(sc.imageBase64); 
+    return "SCANNER"; 
+  }
 
   try {
-    const r = await fetch(`${API_BASE}/api/messages/incoming`,{
+    const url = `${API_BASE}/api/messages/incoming`;
+    const body = { content:text, contactPhone:phone, contactName:name||phone, source:"whatsapp" };
+    console.log(TAG, "📤 POSTing text API request to:", url, "body:", body);
+    const r = await fetch(url,{
       method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY},
-      body: JSON.stringify({ content:text, contactPhone:phone, contactName:name||phone, source:"whatsapp" })
+      body: JSON.stringify(body)
     });
     if (r.ok) {
       const d = await r.json();
+      console.log(TAG, "📥 POST text API response success:", d);
       if (!d.reply) console.warn(TAG, "API returned no reply:", d.reason || "unknown");
       return d.reply || null;
     }
-    console.error(TAG, `API ${r.status}:`, await r.text());
-  } catch(e) { console.error(TAG,"callTextAPI:",e.message); }
+    console.error(TAG, `❌ API error response ${r.status}:`, await r.text());
+  } catch(e) { console.error(TAG,"❌ callTextAPI exception:",e.message); }
   return null;
 }
 
 async function callPayAPI(b64, phone, name) {
   if (!API_KEY||!API_BASE||!phone||phone.length<5) return null;
   try {
-    const r = await fetch(`${API_BASE}/api/payment/screenshot`,{
+    const url = `${API_BASE}/api/payment/screenshot`;
+    const body = { imageBase64:b64.slice(0, 100) + "...[truncated]", contactPhone:phone, contactName:name||phone, source:"whatsapp" };
+    console.log(TAG, "📤 POSTing image API request to:", url, "body:", body);
+    const r = await fetch(url,{
       method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY},
       body: JSON.stringify({ imageBase64:b64, contactPhone:phone, contactName:name||phone, source:"whatsapp" })
     });
-    if (r.ok) { const d=await r.json(); return d.reply||null; }
-  } catch(e) { console.error(TAG,"callPayAPI:",e.message); }
+    if (r.ok) { 
+      const d=await r.json(); 
+      console.log(TAG, "📥 POST image API response success:", d);
+      return d.reply||null; 
+    }
+    console.error(TAG, `❌ API error response ${r.status}:`, await r.text());
+  } catch(e) { console.error(TAG,"❌ callPayAPI exception:",e.message); }
   return null;
 }
 
 // ── Process one message ───────────────────────────────────────
 async function processMsg(msgEl, opts = {}) {
   const force = !!opts.force;
-  const id = msgEl.getAttribute("data-id") || "";
+  const id = msgEl.getAttribute("data-id") || msgEl.getAttribute("data-testid") || "";
+  console.log(TAG, "🔍 processMsg called for element ID:", id);
 
-  // Skip outgoing and known non-message container IDs
-  if (id && isContainerId(id)) return false;
-  if (id && id.startsWith("true_")) return false;
-  if (msgEl.classList.contains("message-out")) return false;
-
-  const phone = phoneFromId(id);
-  if (!phone) return false;
-
-  if (LAST_PROCESSED_MSG_ID[phone] === id && !force) {
+  const chatName = getContactName();
+  const isOut = isOutgoingMessage(msgEl, chatName);
+  console.log(TAG, `🤔 Message direction check: isOutgoing=${isOut}`);
+  if (isOut) {
+    console.log(TAG, "skip: message is outgoing");
     return false;
   }
-  if (IN_FLIGHT.has(id)) return false;
+
+  const phone = phoneFromId(id);
+  console.log(TAG, "📱 Phone/Identifier detected:", phone);
+  if (!phone) {
+    console.log(TAG, "skip: no phone/identifier detected for message", id);
+    return false;
+  }
+
+  if (LAST_PROCESSED_MSG_ID[phone] === id && !force) {
+    console.log(TAG, "skip: already processed message", id);
+    return false;
+  }
+  if (IN_FLIGHT.has(id)) {
+    console.log(TAG, "skip: message in-flight", id);
+    return false;
+  }
   IN_FLIGHT.add(id);
 
   if (!API_KEY || !API_BASE) {
@@ -316,27 +407,50 @@ async function processMsg(msgEl, opts = {}) {
   }
 
   if (hasImg) {
-    console.log(TAG, "📷 Image from", phone);
+    console.log(TAG, "📷 Image message detected from", phone);
     LAST_PROCESSED_MSG_ID[phone] = id;
+    console.log(TAG, "⏳ Extracting base64 image data...");
     const b64 = await imgBase64(msgEl);
-    const reply = b64 ? await callPayAPI(b64, phone, name)
-      : "📸 *Payment screenshot bhejo!*\n\nPoints add karwane ke liye payment confirmation screenshot bhejo.";
-    if (reply) { await sleep(800); await sendText(reply); IN_FLIGHT.delete(id); return true; }
+    if (b64) {
+      console.log(TAG, "📤 Sending image API request to payment endpoint...");
+      const reply = await callPayAPI(b64, phone, name);
+      console.log(TAG, "📥 Image API response:", reply);
+      if (reply) {
+        await sleep(800);
+        const sent = await sendText(reply);
+        console.log(TAG, "🚀 Image reply send result:", sent);
+        IN_FLIGHT.delete(id);
+        return sent;
+      }
+    } else {
+      console.warn(TAG, "⚠️ Failed to extract base64 data from image");
+      const reply = "📸 *Payment screenshot bhejo!*\n\nPoints add karwane ke liye payment confirmation screenshot bhejo.";
+      await sleep(800);
+      const sent = await sendText(reply);
+      console.log(TAG, "🚀 Fallback reply send result:", sent);
+      IN_FLIGHT.delete(id);
+      return sent;
+    }
     IN_FLIGHT.delete(id);
     return false;
   }
 
   const text = getMessageText(msgEl);
+  console.log(TAG, "📝 Text extracted:", text);
   if (!text || text.length < 1) {
+    console.log(TAG, "skip: empty text message", id);
     IN_FLIGHT.delete(id);
     return false;
   }
 
-  console.log(TAG, `💬 "${text.slice(0, 50)}" | phone:${phone}`);
+  console.log(TAG, `💬 Processing text: "${text.slice(0, 50)}" | phone:${phone}`);
+  console.log(TAG, "📤 Sending text API request to messages incoming endpoint...");
   const reply = await callTextAPI(text, phone, name);
+  console.log(TAG, "📥 Text API response:", reply);
   if (reply && reply !== "SCANNER") {
     await sleep(800);
     const sent = await sendText(reply);
+    console.log(TAG, "🚀 Text reply send result:", sent);
     if (sent) LAST_PROCESSED_MSG_ID[phone] = id;
     IN_FLIGHT.delete(id);
     return sent;
@@ -358,7 +472,7 @@ function watchChatChange() {
           const all = getIncomingMessages();
           if (all.length > 0) {
             const lastMsg = all[all.length - 1];
-            const id = lastMsg.getAttribute("data-id");
+            const id = lastMsg.getAttribute("data-id") || lastMsg.getAttribute("data-testid") || "";
             const phone = phoneFromId(id);
             if (phone) {
               LAST_PROCESSED_MSG_ID[phone] = id;
@@ -371,6 +485,14 @@ function watchChatChange() {
   }).observe(headerArea, { subtree:true, childList:true, attributes:true, attributeFilter:["title"] });
 }
 
+// ── Unread chat badge finder helper ──────────────────────────────
+function getUnreadBadge(item) {
+  return item.querySelector('[data-testid="icon-unread-count"]')
+    || item.querySelector('span[class*="unread"]')
+    || item.querySelector('[aria-label*="unread"]')
+    || item.querySelector('[class*="unread-count"]');
+}
+
 // ── Unread chat poller ─────────────────────────────────────────
 async function pollUnread() {
   if (!IS_ENABLED || IS_BUSY) return;
@@ -378,7 +500,7 @@ async function pollUnread() {
   try {
     const chatItems = document.querySelectorAll('[data-testid="cell-frame-container"]');
     for (const item of chatItems) {
-      const badge = item.querySelector('[data-testid="icon-unread-count"]');
+      const badge = getUnreadBadge(item);
       if (!badge) continue;
 
       const chatName = item.querySelector("span[title]")?.getAttribute("title")||"";
@@ -422,6 +544,14 @@ async function pollUnread() {
       }
 
       if (lastMsg) {
+        // Prevent double reply if the absolute last message in chat is already outgoing
+        if (isLastMessageOutgoing()) {
+          console.log(TAG, `Skip: last message in chat "${chatName}" is outgoing. Already replied.`);
+          CHAT_REPLIED[chatName] = Date.now();
+          IS_OPENED_BY_POLLER = false;
+          continue;
+        }
+
         const ok = await processMsg(lastMsg, { force: true });
         if (ok) {
           CHAT_REPLIED[chatName] = Date.now();
@@ -454,15 +584,23 @@ function startObserver() {
     for (const m of muts) {
       for (const n of m.addedNodes) {
         if (n.nodeType!==1) continue;
-        // Only process nodes with valid WhatsApp message data-ids
-        const nId = n.getAttribute?.("data-id");
-        if (nId && isValidMsgId(nId)) { processMsg(n); continue; }
-        // Check children but limit scope to avoid processing hundreds of non-message elements
-        if (nId) continue; // has data-id but not a valid message — skip its children too
-        const msgEls = n.querySelectorAll?.('[data-id^="false_"]');
-        if (msgEls) msgEls.forEach(el => {
-          if (isValidMsgId(el.getAttribute("data-id"))) processMsg(el);
-        });
+        
+        // Check if node itself matches message attributes
+        const isMsg = n.matches?.('[data-testid^="conv-msg-"], .copyable-text, [data-id]');
+        if (isMsg) {
+          console.log(TAG, "🔍 MutationObserver: New message element added directly:", n.getAttribute("data-id") || n.getAttribute("data-testid") || "");
+          processMsg(n);
+          continue;
+        }
+        
+        // Check nested elements
+        const msgEls = n.querySelectorAll?.('[data-testid^="conv-msg-"], .copyable-text, [data-id]');
+        if (msgEls && msgEls.length > 0) {
+          msgEls.forEach(el => {
+            console.log(TAG, "🔍 MutationObserver: Nested message element added:", el.getAttribute("data-id") || el.getAttribute("data-testid") || "");
+            processMsg(el);
+          });
+        }
       }
     }
   }).observe(document.body,{childList:true,subtree:true});
@@ -491,5 +629,5 @@ chrome.storage.onChanged.addListener(c=>{
   startObserver();
   watchChatChange();
   setInterval(pollUnread, 4000);
-  console.log(TAG, "✅ ReplyPilot extension v7 initialized successfully.");
+  console.log(TAG, "✅ ReplyPilot extension v8 initialized successfully.");
 })();
