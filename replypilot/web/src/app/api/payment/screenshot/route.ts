@@ -196,22 +196,28 @@ Rules:
       });
     }
 
-    // ─── Step 6: Duplicate Transaction ID check ───────────────────────────────
+    // ─── Step 6: Duplicate Transaction ID check (Global check across all users)
     const existingRecord = await PaymentRecord.findOne({
-      user: user._id,
       transactionId: extracted.transactionId,
     });
 
     if (existingRecord) {
-      // Format the original submission date/time
-      const origDate = new Date(existingRecord.createdAt);
-      const origDateStr = origDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
-      const origTimeStr = origDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+      let origDateStr = "kuch samay pehle";
+      let origTimeStr = "";
+      try {
+        const origDate = existingRecord.createdAt ? new Date(existingRecord.createdAt) : null;
+        if (origDate && !isNaN(origDate.getTime())) {
+          origDateStr = origDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+          origTimeStr = " ko " + origDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
+        }
+      } catch (e) {
+        console.error("Error formatting duplicate date:", e);
+      }
 
       return NextResponse.json({
         verified: false,
         action: "duplicate",
-        reply: `⚠️ *Yeh screenshot already submit ho chuka hai!*\n\n*Transaction ID:* ${extracted.transactionId}\n*Pehle submit hua:* ${origDateStr} ko ${origTimeStr}\n\nPlease check karo — yeh payment already add ho chuki hai.\n\nKoi aur issue ho toh support se contact karo. 😊`,
+        reply: `⚠️ *Yeh screenshot already submit ho chuka hai!*\n\n*Transaction ID:* ${extracted.transactionId}\n*Pehle submit hua:* ${origDateStr}${origTimeStr}\n\nPlease check karo — yeh payment already add ho chuki hai.\n\nKoi aur issue ho toh support se contact karo. 😊`,
       });
     }
 
