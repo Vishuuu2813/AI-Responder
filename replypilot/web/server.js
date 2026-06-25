@@ -19,82 +19,133 @@ async function startBotService() {
   const axios = (await import('axios')).default;
   const mongoose = require('mongoose');
 
-  // Connect to MongoDB and register User model inside the bot scope
+  // ─── MongoDB connection ───────────────────────────────────────────────────────
   if (mongoose.connection.readyState === 0) {
     if (process.env.MONGODB_URI) {
-      mongoose.connect(process.env.MONGODB_URI, {
+      await mongoose.connect(process.env.MONGODB_URI, {
         bufferCommands: false,
         maxPoolSize: 10,
-        serverSelectionTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 10000,
         socketTimeoutMS: 45000,
-      }).then(() => {
-        console.log("[Bot] MongoDB connected successfully");
-      }).catch(err => {
-        console.error("[Bot] MongoDB connection failed:", err.message);
       });
+      console.log('[Bot] MongoDB connected successfully');
     } else {
-      console.error("[Bot] MONGODB_URI is missing in environment variables!");
+      console.error('[Bot] MONGODB_URI is missing!');
     }
   }
 
+  // ─── Models ───────────────────────────────────────────────────────────────────
   const UserSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    role: { type: String, enum: ["user", "admin"], default: "user" },
+    role: { type: String, enum: ['user', 'admin'], default: 'user' },
     isActive: { type: Boolean, default: true },
     apiKey: { type: String, unique: true, sparse: true }
   }, { timestamps: true });
 
   const User = mongoose.models.User || mongoose.model('User', UserSchema);
 
+  // MongoDB-backed WhatsApp session storage (replaces /tmp — survives Railway restarts)
+  const WASessionSchema = new mongoose.Schema({
+    userId: { type: String, required: true },
+    key: { type: String, required: true },
+    value: { type: mongoose.Schema.Types.Mixed, required: true }
+  }, { timestamps: true });
+  WASessionSchema.index({ userId: 1, key: 1 }, { unique: true });
+  const WASession = mongoose.models.WASession || mongoose.model('WASession', WASessionSchema);
+
+  // ─── Logger / helpers ─────────────────────────────────────────────────────────
   const logger = pino({ level: 'silent' });
   const sessions = new Map();
-  const SESSIONS_DIR = '/tmp/whatsapp-sessions';
   const LOG_FILE = '/tmp/whatsapp-bot-debug.log';
 
   function logDebug(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
-    try {
-      fs.appendFileSync(LOG_FILE, line);
-    } catch (e) {}
+    try { fs.appendFileSync(LOG_FILE, line); } catch (e) {}
     console.log(`[Bot Debug] ${msg}`);
   }
 
-  if (!fs.existsSync(SESSIONS_DIR)) {
-    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
-  }
-
-  function getSessionPath(userId) {
-    return path.join(SESSIONS_DIR, userId);
-  }
-
-  function cleanupSessionFolder(userId) {
-    const sessionPath = getSessionPath(userId);
-    if (fs.existsSync(sessionPath)) {
-      try {
-        fs.rmSync(sessionPath, { recursive: true, force: true });
-        logDebug(`Cleaned up session folder for user ${userId}`);
-      } catch (e) {
-        logDebug(`Failed to clean up session folder: ${e.message}`);
-      }
+  // ─── MongoDB auth state (replaces useMultiFileAuthState) ─────────────────────
+  async function useMongoAuthState(userId) {
+    async function readData(key) {
+      const doc = await WASession.findOne({ userId, key }).lean();
+      return doc ? doc.value : null;
     }
+    async function writeData(key, value) {
+      await WASession.findOneAndUpdate(
+        { userId, key },
+        { userId, key, value },
+        { upsert: true, new: true }
+      );
+    }
+    async function removeData(key) {
+      await WASession.deleteOne({ userId, key });
+    }
+
+    const credsKey = 'creds';
+    let creds = await readData(credsKey);
+    if (!creds) {
+      const { initAuthCreds } = await import('@whiskeysockets/baileys');
+      creds = initAuthCreds();
+    }
+
+    return {
+      state: {
+        creds,
+        keys: {
+          get: async (type, ids) => {
+            const data = {};
+            await Promise.all(ids.map(async (id) => {
+              const val = await readData(`${type}-${id}`);
+              if (val) data[id] = val;
+            }));
+            return data;
+          },
+          set: async (data) => {
+            await Promise.all(Object.entries(data).flatMap(([type, entries]) =>
+              Object.entries(entries).map(([id, value]) =>
+                value ? writeData(`${type}-${id}`, value) : removeData(`${type}-${id}`)
+              )
+            ));
+          }
+        }
+      },
+      saveCreds: async () => writeData(credsKey, creds)
+    };
   }
 
+  // ─── Resolve @lid → phone number JID ─────────────────────────────────────────
+  async function resolveJid(sock, rawJid) {
+    if (!rawJid.endsWith('@lid')) return rawJid; // already phone-based
+    try {
+      // Extract the numeric part and try to look it up via WhatsApp servers
+      const phoneNumber = rawJid.split('@')[0];
+      const results = await sock.onWhatsApp(phoneNumber);
+      if (results && results.length > 0 && results[0].exists) {
+        logDebug(`[JID] Resolved @lid ${rawJid} → ${results[0].jid}`);
+        return results[0].jid;
+      }
+    } catch (err) {
+      logDebug(`[JID] Failed to resolve @lid ${rawJid}: ${err.message}`);
+    }
+    // fallback: still use lid (message might still get delivered)
+    return rawJid;
+  }
+
+  // ─── Session Manager ──────────────────────────────────────────────────────────
   const SessionManager = {
-    init() {
-      logDebug("Initializing SessionManager...");
+    async init() {
+      logDebug('Initializing SessionManager...');
       try {
-        const dirs = fs.readdirSync(SESSIONS_DIR);
-        logDebug(`Found ${dirs.length} existing session directories.`);
-        for (const userId of dirs) {
-          const fullPath = path.join(SESSIONS_DIR, userId);
-          if (fs.statSync(fullPath).isDirectory()) {
-            logDebug(`Restoring session for user: ${userId}`);
-            this.startSession(userId).catch(err =>
-              logDebug(`[Bot] Failed to restore session for ${userId}: ${err.message}`)
-            );
-          }
+        // Find all users that have saved creds in MongoDB
+        const docs = await WASession.distinct('userId', { key: 'creds' });
+        logDebug(`Found ${docs.length} existing sessions in MongoDB.`);
+        for (const uid of docs) {
+          logDebug(`Restoring session for user: ${uid}`);
+          this.startSession(uid).catch(err =>
+            logDebug(`Failed to restore session for ${uid}: ${err.message}`)
+          );
         }
       } catch (e) {
         logDebug(`Initialization error: ${e.message}`);
@@ -115,28 +166,30 @@ async function startBotService() {
         if (['connecting', 'connected', 'qr'].includes(s.status)) return s;
       }
 
-      const sessionPath = getSessionPath(userId);
-      logDebug(`Using session path: ${sessionPath}`);
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+      logDebug(`Loading auth state from MongoDB for user: ${userId}`);
+      const { state, saveCreds } = await useMongoAuthState(userId);
 
-      logDebug(`Fetching latest WA version...`);
-      let waVersion = [2, 3000, 1015901307]; // Fallback stable version
+      logDebug('Fetching latest WA version...');
+      let waVersion = [2, 3000, 1015901307];
       try {
         const { version, isLatest } = await fetchLatestBaileysVersion();
-        logDebug(`Latest WA version fetched: ${version.join('.')}, isLatest: ${isLatest}`);
+        logDebug(`Latest WA version: ${version.join('.')}, isLatest: ${isLatest}`);
         waVersion = version;
       } catch (err) {
         logDebug(`Failed to fetch WA version: ${err.message}. Using fallback.`);
       }
 
-      logDebug(`Creating WASocket connection...`);
+      logDebug('Creating WASocket connection...');
       const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
         logger,
         version: waVersion,
-        browser: ['ReplyPilot', 'Chrome', '1.0.0']
+        browser: ['ReplyPilot', 'Chrome', '1.0.0'],
+        connectTimeoutMs: 30000,
+        keepAliveIntervalMs: 15000,
       });
+
       const session = { status: 'connecting', qr: null, phoneNumber: null, sock };
       sessions.set(userId, session);
 
@@ -150,34 +203,36 @@ async function startBotService() {
           try {
             session.qr = await QRCode.toDataURL(qr);
             session.status = 'qr';
-            logDebug(`QR Code generated and status set to 'qr' for ${userId}`);
+            logDebug(`QR Code generated for ${userId}`);
           } catch (e) {
-            logDebug(`QR Code conversion error: ${e.message}`);
+            logDebug(`QR Code error: ${e.message}`);
           }
         }
 
-        if (connection === 'connecting') {
-          session.status = 'connecting';
-        }
+        if (connection === 'connecting') session.status = 'connecting';
 
         if (connection === 'open') {
           session.status = 'connected';
           session.qr = null;
           session.phoneNumber = sock.user.id.split(':')[0].split('@')[0];
-          logDebug(`Session connected successfully for ${userId}. Phone: ${session.phoneNumber}`);
+          logDebug(`Session connected for ${userId}. Phone: ${session.phoneNumber}`);
         }
 
         if (connection === 'close') {
           const code = lastDisconnect?.error?.output?.statusCode;
           logDebug(`Connection closed with code: ${code}`);
-          sessions.delete(userId); // Remove to break connecting guard block
+          sessions.delete(userId);
 
-          if (code !== DisconnectReason.loggedOut) {
-            logDebug(`Reconnecting session in 3s...`);
-            setTimeout(() => this.startSession(userId).catch(err => logDebug(`Reconnection failed: ${err.message}`)), 3000);
+          if (code === DisconnectReason.loggedOut) {
+            // Delete creds from MongoDB so user must re-scan
+            await WASession.deleteMany({ userId });
+            logDebug(`Logged out — cleared MongoDB session for: ${userId}`);
           } else {
-            cleanupSessionFolder(userId);
-            logDebug(`Logged out session cleared for user: ${userId}`);
+            logDebug(`Reconnecting in 5s...`);
+            setTimeout(() =>
+              this.startSession(userId).catch(err => logDebug(`Reconnection failed: ${err.message}`)),
+              5000
+            );
           }
         }
       });
@@ -187,18 +242,14 @@ async function startBotService() {
         for (const msg of m.messages) {
           try {
             if (msg.key.fromMe) return;
-            let jid = msg.key.remoteJid;
-            const altJid = msg.key.remoteJidAlt;
 
-            logDebug(`[Message RAW] ${JSON.stringify(msg)}`);
+            const rawJid = msg.key.remoteJid;
+            if (rawJid.endsWith('@broadcast') || rawJid === 'status@broadcast') return;
 
-            if (altJid && altJid.endsWith('@s.whatsapp.net')) {
-              jid = altJid;
-            }
-
-            if (jid.endsWith('@broadcast') || jid === 'status@broadcast') return;
-
+            // Resolve @lid → real phone JID so reply actually delivers
+            const jid = await resolveJid(sock, rawJid);
             const isGroup = jid.endsWith('@g.us');
+
             let content = '';
             let isImage = false;
             let imageMessage = null;
@@ -213,72 +264,56 @@ async function startBotService() {
 
             if (!content && !isImage) return;
 
-            logDebug(`[Message] Incoming from ${jid} (original JID was ${msg.key.remoteJid}): ${content}`);
+            logDebug(`[Message] From ${jid} (raw: ${rawJid}): ${isImage ? '[IMAGE]' : content}`);
 
             const user = await User.findById(userId).lean();
-            if (!user) {
-              logDebug(`[Message] User not found in DB: ${userId}`);
-              return;
-            }
-            if (!user.apiKey) {
-              logDebug(`[Message] User does not have an API key configured: ${userId}`);
-              return;
-            }
+            if (!user) { logDebug(`[Message] User not found: ${userId}`); return; }
+            if (!user.apiKey) { logDebug(`[Message] No API key for user: ${userId}`); return; }
 
             const contactName = msg.pushName || jid.split('@')[0];
             const contactPhone = jid.split('@')[0];
             const appUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000';
 
-            logDebug(`[Message] Sending to API endpoint: ${appUrl}`);
-
             if (isImage) {
-              logDebug(`[Message] Downloading image content...`);
+              logDebug('[Message] Downloading image...');
               const stream = await downloadContentFromMessage(imageMessage, 'image');
               let buffer = Buffer.from([]);
               for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
               const imageBase64 = buffer.toString('base64');
 
-              logDebug(`[Message] Sending image to payment screenshot API...`);
               const res = await axios.post(`${appUrl}/api/payment/screenshot`, {
                 contactPhone, contactName, imageBase64
-              }, { headers: { 'x-api-key': user.apiKey } });
+              }, { headers: { 'x-api-key': user.apiKey }, timeout: 30000 });
 
-              logDebug(`[Message] Screenshot API response: ${JSON.stringify(res.data)}`);
-
+              logDebug(`[Message] Screenshot API: ${JSON.stringify(res.data)}`);
               if (res.data?.reply) {
                 await new Promise(r => setTimeout(r, 1500));
                 await sock.sendMessage(jid, { text: res.data.reply });
-                logDebug(`[Message] Reply sent back to ${jid}`);
+                logDebug(`[Message] Image reply sent to ${jid}`);
               }
             } else {
-              logDebug(`[Message] Sending text to incoming message API...`);
               const res = await axios.post(`${appUrl}/api/messages/incoming`, {
                 contactName, contactPhone, content, source: 'whatsapp', isGroup, groupName: isGroup ? 'Group' : null
-              }, { headers: { 'x-api-key': user.apiKey } });
+              }, { headers: { 'x-api-key': user.apiKey }, timeout: 30000 });
 
-              logDebug(`[Message] Message API response: ${JSON.stringify(res.data)}`);
+              logDebug(`[Message] Message API: ${JSON.stringify(res.data)}`);
 
               if (res.data?.reply) {
                 const delayMs = res.data.delay || 0;
-                if (delayMs > 0) {
-                  logDebug(`[Message] Delaying response by ${delayMs}ms...`);
-                  await new Promise(r => setTimeout(r, delayMs));
-                }
+                if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
 
                 if (res.data.replyMode === 'scanner' && res.data.imageBase64) {
-                  logDebug(`[Message] Sending scanner image reply...`);
                   const imageBuffer = Buffer.from(res.data.imageBase64, 'base64');
                   await sock.sendMessage(jid, { image: imageBuffer, caption: res.data.reply });
-                  logDebug(`[Message] Image reply sent back to ${jid}`);
+                  logDebug(`[Message] Scanner image reply sent to ${jid}`);
                 } else {
-                  logDebug(`[Message] Sending text reply: ${res.data.reply}`);
                   await sock.sendMessage(jid, { text: res.data.reply });
-                  logDebug(`[Message] Text reply sent back to ${jid}`);
+                  logDebug(`[Message] Text reply sent to ${jid}`);
                 }
               }
             }
           } catch (err) {
-            logDebug(`[Message Error] Failed to process message: ${err.message}. Stack: ${err.stack}`);
+            logDebug(`[Message Error] ${err.message}\nStack: ${err.stack}`);
           }
         }
       });
@@ -292,11 +327,12 @@ async function startBotService() {
         try { await session.sock.logout(); } catch (e) {}
         sessions.delete(userId);
       }
-      cleanupSessionFolder(userId);
+      await WASession.deleteMany({ userId });
+      logDebug(`Session cleared from MongoDB for: ${userId}`);
     }
   };
 
-  // Express bot API on port 3001
+  // ─── Express bot API ──────────────────────────────────────────────────────────
   const botApp = express();
   botApp.use(cors());
   botApp.use(express.json());
@@ -345,10 +381,8 @@ async function startBotService() {
 
 // Start everything
 app.prepare().then(async () => {
-  // Start bot service
   startBotService().catch(err => console.error('[Bot] Failed to start:', err.message));
 
-  // Start Next.js HTTP server
   const port = parseInt(process.env.PORT || '3000', 10);
   http.createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
