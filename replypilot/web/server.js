@@ -11,7 +11,7 @@ const BOT_PORT = 3001;
 
 // Lazy-load ESM bot modules
 async function startBotService() {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadContentFromMessage } = await import('@whiskeysockets/baileys');
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadContentFromMessage, fetchLatestBaileysVersion } = await import('@whiskeysockets/baileys');
   const { default: pino } = await import('pino');
   const { default: QRCode } = await import('qrcode');
   const fs = require('fs');
@@ -91,8 +91,24 @@ async function startBotService() {
       logDebug(`Using session path: ${sessionPath}`);
       const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
+      logDebug(`Fetching latest WA version...`);
+      let waVersion = [2, 3000, 1015901307]; // Fallback stable version
+      try {
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+        logDebug(`Latest WA version fetched: ${version.join('.')}, isLatest: ${isLatest}`);
+        waVersion = version;
+      } catch (err) {
+        logDebug(`Failed to fetch WA version: ${err.message}. Using fallback.`);
+      }
+
       logDebug(`Creating WASocket connection...`);
-      const sock = makeWASocket({ auth: state, printQRInTerminal: false, logger });
+      const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        logger,
+        version: waVersion,
+        browser: ['ReplyPilot', 'Chrome', '1.0.0']
+      });
       const session = { status: 'connecting', qr: null, phoneNumber: null, sock };
       sessions.set(userId, session);
 
@@ -126,12 +142,12 @@ async function startBotService() {
         if (connection === 'close') {
           const code = lastDisconnect?.error?.output?.statusCode;
           logDebug(`Connection closed with code: ${code}`);
+          sessions.delete(userId); // Remove to break connecting guard block
+
           if (code !== DisconnectReason.loggedOut) {
             logDebug(`Reconnecting session in 3s...`);
             setTimeout(() => this.startSession(userId).catch(err => logDebug(`Reconnection failed: ${err.message}`)), 3000);
           } else {
-            session.status = 'disconnected';
-            sessions.delete(userId);
             cleanupSessionFolder(userId);
             logDebug(`Logged out session cleared for user: ${userId}`);
           }
