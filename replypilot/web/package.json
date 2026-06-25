@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node start-all.js",
+    "postinstall": "cd ../whatsapp-bot && npm install --omit=dev",
     "lint": "eslint"
   },
   "dependencies": {
