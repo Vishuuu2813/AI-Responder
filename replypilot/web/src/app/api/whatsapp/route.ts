@@ -12,6 +12,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const action = searchParams.get("action");
+
+    if (action === "diagnostics") {
+      const response = await axios.get(`${BOT_SERVICE_URL}/diagnostics`, { responseType: 'text', timeout: 5000 });
+      return new NextResponse(response.data, {
+        headers: { "Content-Type": "text/plain" }
+      });
+    }
+
     const response = await axios.get(`${BOT_SERVICE_URL}/status?userId=${userId}`, { timeout: 5000 });
     return NextResponse.json(response.data);
   } catch (error: any) {

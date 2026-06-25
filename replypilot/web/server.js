@@ -22,6 +22,16 @@ async function startBotService() {
   const logger = pino({ level: 'silent' });
   const sessions = new Map();
   const SESSIONS_DIR = '/tmp/whatsapp-sessions';
+  const LOG_FILE = '/tmp/whatsapp-bot-debug.log';
+
+  function logDebug(msg) {
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${msg}\n`;
+    try {
+      fs.appendFileSync(LOG_FILE, line);
+    } catch (e) {}
+    console.log(`[Bot Debug] ${msg}`);
+  }
 
   if (!fs.existsSync(SESSIONS_DIR)) {
     fs.mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -34,23 +44,33 @@ async function startBotService() {
   function cleanupSessionFolder(userId) {
     const sessionPath = getSessionPath(userId);
     if (fs.existsSync(sessionPath)) {
-      try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch (e) {}
+      try {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+        logDebug(`Cleaned up session folder for user ${userId}`);
+      } catch (e) {
+        logDebug(`Failed to clean up session folder: ${e.message}`);
+      }
     }
   }
 
   const SessionManager = {
     init() {
+      logDebug("Initializing SessionManager...");
       try {
         const dirs = fs.readdirSync(SESSIONS_DIR);
+        logDebug(`Found ${dirs.length} existing session directories.`);
         for (const userId of dirs) {
           const fullPath = path.join(SESSIONS_DIR, userId);
           if (fs.statSync(fullPath).isDirectory()) {
+            logDebug(`Restoring session for user: ${userId}`);
             this.startSession(userId).catch(err =>
-              console.error(`[Bot] Failed to restore session for ${userId}:`, err.message)
+              logDebug(`[Bot] Failed to restore session for ${userId}: ${err.message}`)
             );
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        logDebug(`Initialization error: ${e.message}`);
+      }
     },
 
     getStatus(userId) {
@@ -60,14 +80,18 @@ async function startBotService() {
     },
 
     async startSession(userId) {
+      logDebug(`startSession called for user: ${userId}`);
       if (sessions.has(userId)) {
         const s = sessions.get(userId);
+        logDebug(`Existing session status for ${userId}: ${s.status}`);
         if (['connecting', 'connected', 'qr'].includes(s.status)) return s;
       }
 
       const sessionPath = getSessionPath(userId);
+      logDebug(`Using session path: ${sessionPath}`);
       const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
+      logDebug(`Creating WASocket connection...`);
       const sock = makeWASocket({ auth: state, printQRInTerminal: false, logger });
       const session = { status: 'connecting', qr: null, phoneNumber: null, sock };
       sessions.set(userId, session);
@@ -76,31 +100,40 @@ async function startBotService() {
 
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        logDebug(`connection.update: connection=${connection}, qr=${qr ? 'yes' : 'no'}, error=${lastDisconnect?.error?.message || 'none'}`);
 
         if (qr) {
           try {
             session.qr = await QRCode.toDataURL(qr);
             session.status = 'qr';
-          } catch (e) {}
+            logDebug(`QR Code generated and status set to 'qr' for ${userId}`);
+          } catch (e) {
+            logDebug(`QR Code conversion error: ${e.message}`);
+          }
         }
 
-        if (connection === 'connecting') session.status = 'connecting';
+        if (connection === 'connecting') {
+          session.status = 'connecting';
+        }
 
         if (connection === 'open') {
           session.status = 'connected';
           session.qr = null;
           session.phoneNumber = sock.user.id.split(':')[0].split('@')[0];
-          console.log(`[Bot] Connected as ${session.phoneNumber}`);
+          logDebug(`Session connected successfully for ${userId}. Phone: ${session.phoneNumber}`);
         }
 
         if (connection === 'close') {
           const code = lastDisconnect?.error?.output?.statusCode;
+          logDebug(`Connection closed with code: ${code}`);
           if (code !== DisconnectReason.loggedOut) {
-            setTimeout(() => this.startSession(userId).catch(() => {}), 3000);
+            logDebug(`Reconnecting session in 3s...`);
+            setTimeout(() => this.startSession(userId).catch(err => logDebug(`Reconnection failed: ${err.message}`)), 3000);
           } else {
             session.status = 'disconnected';
             sessions.delete(userId);
             cleanupSessionFolder(userId);
+            logDebug(`Logged out session cleared for user: ${userId}`);
           }
         }
       });
@@ -216,6 +249,14 @@ async function startBotService() {
       res.json({ success: true, status: 'disconnected' });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  botApp.get('/diagnostics', (req, res) => {
+    if (fs.existsSync(LOG_FILE)) {
+      res.type('text/plain').send(fs.readFileSync(LOG_FILE, 'utf8'));
+    } else {
+      res.send('No diagnostics logs found yet.');
     }
   });
 
