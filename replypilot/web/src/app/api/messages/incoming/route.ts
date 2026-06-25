@@ -110,12 +110,41 @@ export async function POST(req: NextRequest) {
     });
 
     let reply: string | null = null;
-    let replyMode: "ai" | "manual" | "hybrid" | "none" = "none";
+    let replyMode: "ai" | "manual" | "hybrid" | "none" | "scanner" = "none";
     let tokensUsed = 0;
     let ruleId: string | undefined;
+    let imageBase64: string | undefined;
 
-    // Determine reply based on mode
-    if (settings.replyMode === "manual" || settings.replyMode === "hybrid") {
+    // Check scanner keywords first
+    const rawScanners = settings.ai?.scanners || [];
+    let matchedScanner: any = null;
+    const lowerContent = content.toLowerCase().trim();
+
+    for (const s of rawScanners) {
+      try {
+        const scanner = typeof s === "string" ? JSON.parse(s) : s;
+        if (scanner && scanner.keywords && scanner.imageBase64) {
+          const matches = scanner.keywords.some((kw: string) =>
+            lowerContent.includes(kw.toLowerCase().trim())
+          );
+          if (matches) {
+            matchedScanner = scanner;
+            break;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing scanner:", e);
+      }
+    }
+
+    if (matchedScanner) {
+      reply = `Sent Scanner: ${matchedScanner.name}`;
+      replyMode = "scanner";
+      imageBase64 = matchedScanner.imageBase64;
+    }
+
+    // Determine reply based on mode if not already handled by scanner
+    if (!reply && (settings.replyMode === "manual" || settings.replyMode === "hybrid")) {
       const ruleMatch = await matchManualRule(user._id.toString(), content);
       if (ruleMatch.matched) {
         reply = ruleMatch.reply!;
@@ -141,6 +170,7 @@ export async function POST(req: NextRequest) {
       await Message.updateOne({ _id: incomingMessage._id }, { replyStatus: "skipped" });
       return NextResponse.json({ reply: null, reason: "No reply generated" });
     }
+
 
     // Calculate delay
     let delayMs = 0;
@@ -203,6 +233,7 @@ export async function POST(req: NextRequest) {
       reply,
       delay: delayMs,
       replyMode,
+      imageBase64,
     });
   } catch (error: any) {
     console.error("Incoming message error:", error);
