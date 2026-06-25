@@ -19,6 +19,34 @@ async function startBotService() {
   const axios = (await import('axios')).default;
   const mongoose = require('mongoose');
 
+  // Connect to MongoDB and register User model inside the bot scope
+  if (mongoose.connection.readyState === 0) {
+    if (process.env.MONGODB_URI) {
+      mongoose.connect(process.env.MONGODB_URI, {
+        bufferCommands: false,
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+      }).then(() => {
+        console.log("[Bot] MongoDB connected successfully");
+      }).catch(err => {
+        console.error("[Bot] MongoDB connection failed:", err.message);
+      });
+    } else {
+      console.error("[Bot] MONGODB_URI is missing in environment variables!");
+    }
+  }
+
+  const UserSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    role: { type: String, enum: ["user", "admin"], default: "user" },
+    isActive: { type: Boolean, default: true },
+    apiKey: { type: String, unique: true, sparse: true }
+  }, { timestamps: true });
+
+  const User = mongoose.models.User || mongoose.model('User', UserSchema);
+
   const logger = pino({ level: 'silent' });
   const sessions = new Map();
   const SESSIONS_DIR = '/tmp/whatsapp-sessions';
@@ -177,47 +205,72 @@ async function startBotService() {
 
             if (!content && !isImage) return;
 
-            const User = mongoose.models.User;
+            logDebug(`[Message] Incoming from ${jid}: ${content}`);
+
             const user = await User.findById(userId).lean();
-            if (!user?.apiKey) return;
+            if (!user) {
+              logDebug(`[Message] User not found in DB: ${userId}`);
+              return;
+            }
+            if (!user.apiKey) {
+              logDebug(`[Message] User does not have an API key configured: ${userId}`);
+              return;
+            }
 
             const contactName = msg.pushName || jid.split('@')[0];
             const contactPhone = jid.split('@')[0];
             const appUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000';
 
+            logDebug(`[Message] Sending to API endpoint: ${appUrl}`);
+
             if (isImage) {
+              logDebug(`[Message] Downloading image content...`);
               const stream = await downloadContentFromMessage(imageMessage, 'image');
               let buffer = Buffer.from([]);
               for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
               const imageBase64 = buffer.toString('base64');
 
+              logDebug(`[Message] Sending image to payment screenshot API...`);
               const res = await axios.post(`${appUrl}/api/payment/screenshot`, {
                 contactPhone, contactName, imageBase64
               }, { headers: { 'x-api-key': user.apiKey } });
 
+              logDebug(`[Message] Screenshot API response: ${JSON.stringify(res.data)}`);
+
               if (res.data?.reply) {
                 await new Promise(r => setTimeout(r, 1500));
                 await sock.sendMessage(jid, { text: res.data.reply });
+                logDebug(`[Message] Reply sent back to ${jid}`);
               }
             } else {
+              logDebug(`[Message] Sending text to incoming message API...`);
               const res = await axios.post(`${appUrl}/api/messages/incoming`, {
                 contactName, contactPhone, content, source: 'whatsapp', isGroup, groupName: isGroup ? 'Group' : null
               }, { headers: { 'x-api-key': user.apiKey } });
 
+              logDebug(`[Message] Message API response: ${JSON.stringify(res.data)}`);
+
               if (res.data?.reply) {
                 const delayMs = res.data.delay || 0;
-                if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+                if (delayMs > 0) {
+                  logDebug(`[Message] Delaying response by ${delayMs}ms...`);
+                  await new Promise(r => setTimeout(r, delayMs));
+                }
 
                 if (res.data.replyMode === 'scanner' && res.data.imageBase64) {
+                  logDebug(`[Message] Sending scanner image reply...`);
                   const imageBuffer = Buffer.from(res.data.imageBase64, 'base64');
                   await sock.sendMessage(jid, { image: imageBuffer, caption: res.data.reply });
+                  logDebug(`[Message] Image reply sent back to ${jid}`);
                 } else {
+                  logDebug(`[Message] Sending text reply: ${res.data.reply}`);
                   await sock.sendMessage(jid, { text: res.data.reply });
+                  logDebug(`[Message] Text reply sent back to ${jid}`);
                 }
               }
             }
           } catch (err) {
-            console.error('[Bot] Message error:', err.message);
+            logDebug(`[Message Error] Failed to process message: ${err.message}. Stack: ${err.stack}`);
           }
         }
       });
