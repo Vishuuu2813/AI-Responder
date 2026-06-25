@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node start-all.js",
-    "postinstall": "cd ../whatsapp-bot && npm install --omit=dev",
+    "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {

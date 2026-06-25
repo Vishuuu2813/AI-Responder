@@ -1,11 +1,12 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const botDir = path.join(__dirname, '../whatsapp-bot');
-const nextBin = path.join(__dirname, 'node_modules/next/dist/bin/next');
+const webDir = path.join(__dirname, 'web');
+const botDir = path.join(__dirname, 'whatsapp-bot');
+const nextBin = path.join(webDir, 'node_modules/next/dist/bin/next');
 
 console.log("Starting Next.js App...");
-const nextProcess = spawn('node', [nextBin, 'start'], { stdio: 'inherit' });
+const nextProcess = spawn('node', [nextBin, 'start'], { cwd: webDir, stdio: 'inherit' });
 
 console.log("Starting WhatsApp Bot Service...");
 const botProcess = spawn('node', ['index.js'], { cwd: botDir, stdio: 'inherit' });
