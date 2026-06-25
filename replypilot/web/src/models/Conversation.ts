@@ -2,7 +2,6 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 
 export interface IConversation extends Document {
   user: mongoose.Types.ObjectId;
-  profile?: mongoose.Types.ObjectId;
   contactName: string;
   contactPhone: string;
   source: "whatsapp" | "whatsapp_business";
@@ -21,7 +20,6 @@ export interface IConversation extends Document {
 const ConversationSchema = new Schema<IConversation>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    profile: { type: Schema.Types.ObjectId, ref: "Profile" },
     contactName: { type: String, required: true },
     contactPhone: { type: String, required: true },
     source: { type: String, enum: ["whatsapp", "whatsapp_business"], required: true },
@@ -43,9 +41,8 @@ const ConversationSchema = new Schema<IConversation>(
   { timestamps: true }
 );
 
-ConversationSchema.index({ user: 1, profile: 1, contactPhone: 1, source: 1 }, { unique: true });
+ConversationSchema.index({ user: 1, contactPhone: 1, source: 1 }, { unique: true });
 ConversationSchema.index({ user: 1, lastMessageAt: -1 });
-ConversationSchema.index({ profile: 1, lastMessageAt: -1 });
 
 export const Conversation: Model<IConversation> =
   mongoose.models.Conversation ||

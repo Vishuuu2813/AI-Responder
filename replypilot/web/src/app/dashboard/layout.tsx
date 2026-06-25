@@ -6,16 +6,15 @@ import { useState } from "react";
 
 const navItems = [
   { href: "/dashboard", icon: "📊", label: "Dashboard" },
-  { href: "/dashboard/profiles", icon: "🤖", label: "AI Bots / Profiles" },
   { href: "/dashboard/messages", icon: "💬", label: "Messages" },
   { href: "/dashboard/rules", icon: "📋", label: "Rules" },
-  { href: "/dashboard/ai-settings", icon: "⚙️", label: "AI Settings" },
+  { href: "/dashboard/ai-settings", icon: "🤖", label: "AI Settings" },
   { href: "/dashboard/bot-training", icon: "🎓", label: "Bot Training" },
   { href: "/dashboard/contacts", icon: "👥", label: "Contacts" },
   { href: "/dashboard/payments", icon: "💳", label: "Payments" },
   { href: "/dashboard/scanner", icon: "📱", label: "Scanner / QR" },
   { href: "/dashboard/analytics", icon: "📈", label: "Analytics" },
-  { href: "/dashboard/settings", icon: "🔧", label: "Settings" },
+  { href: "/dashboard/settings", icon: "⚙️", label: "Settings" },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
