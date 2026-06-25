@@ -1,9 +1,0 @@
-{
-  "name": "replypilot-monorepo",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "build": "cd web && npm install && npm run build && cd ../whatsapp-bot && npm install --omit=dev",
-    "start": "node start-all.js"
-  }
-}
