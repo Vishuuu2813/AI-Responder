@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import axios from "axios";
 
-const BOT_SERVICE_URL = process.env.BOT_SERVICE_URL || "http://127.0.0.1:3001";
+const BOT_SERVICE_URL = "http://127.0.0.1:3001";
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,15 +12,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const response = await axios.get(`${BOT_SERVICE_URL}/status?userId=${userId}`);
+    const response = await axios.get(`${BOT_SERVICE_URL}/status?userId=${userId}`, { timeout: 5000 });
     return NextResponse.json(response.data);
   } catch (error: any) {
-    console.error("Proxy GET status error:", error.message);
+    // Bot service not yet ready — return disconnected gracefully (not 500)
     return NextResponse.json({
       status: "disconnected",
       qr: null,
-      phoneNumber: null,
-      message: "WhatsApp bot service offline or unreachable."
+      phoneNumber: null
     });
   }
 }
@@ -37,16 +36,20 @@ export async function POST(req: NextRequest) {
     const action = searchParams.get("action");
 
     if (action === "start") {
-      const response = await axios.post(`${BOT_SERVICE_URL}/start`, { userId });
+      const response = await axios.post(`${BOT_SERVICE_URL}/start`, { userId }, { timeout: 10000 });
       return NextResponse.json(response.data);
     } else if (action === "logout") {
-      const response = await axios.post(`${BOT_SERVICE_URL}/logout`, { userId });
+      const response = await axios.post(`${BOT_SERVICE_URL}/logout`, { userId }, { timeout: 5000 });
       return NextResponse.json(response.data);
     } else {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
   } catch (error: any) {
-    console.error(`Proxy POST error:`, error.message);
-    return NextResponse.json({ error: "WhatsApp bot service error", details: error.message }, { status: 500 });
+    console.error(`[WhatsApp Proxy] Error:`, error.message);
+    return NextResponse.json(
+      { error: "WhatsApp bot service not ready. Please wait a moment and try again." },
+      { status: 503 }
+    );
   }
 }
+
