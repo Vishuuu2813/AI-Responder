@@ -190,6 +190,8 @@ async function startBotService() {
             let jid = msg.key.remoteJid;
             const altJid = msg.key.remoteJidAlt;
 
+            logDebug(`[Message RAW] ${JSON.stringify(msg)}`);
+
             if (altJid && altJid.endsWith('@s.whatsapp.net')) {
               jid = altJid;
             }
