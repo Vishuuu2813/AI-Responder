@@ -11,7 +11,7 @@ const BOT_PORT = 3001;
 
 // Lazy-load ESM bot modules
 async function startBotService() {
-  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadContentFromMessage, fetchLatestBaileysVersion } = await import('@whiskeysockets/baileys');
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadContentFromMessage, fetchLatestBaileysVersion, BufferJSON } = await import('@whiskeysockets/baileys');
   const { default: pino } = await import('pino');
   const { default: QRCode } = await import('qrcode');
   const fs = require('fs');
@@ -49,7 +49,7 @@ async function startBotService() {
   const WASessionSchema = new mongoose.Schema({
     userId: { type: String, required: true },
     key: { type: String, required: true },
-    value: { type: mongoose.Schema.Types.Mixed, required: true }
+    value: { type: String, required: true } // Serialized with BufferJSON.replacer
   }, { timestamps: true });
   WASessionSchema.index({ userId: 1, key: 1 }, { unique: true });
   const WASession = mongoose.models.WASession || mongoose.model('WASession', WASessionSchema);
@@ -69,18 +69,34 @@ async function startBotService() {
   // ─── MongoDB auth state (replaces useMultiFileAuthState) ─────────────────────
   async function useMongoAuthState(userId) {
     async function readData(key) {
-      const doc = await WASession.findOne({ userId, key }).lean();
-      return doc ? doc.value : null;
+      try {
+        const doc = await WASession.findOne({ userId, key }).lean();
+        if (doc && doc.value) {
+          return JSON.parse(doc.value, BufferJSON.reviver);
+        }
+      } catch (err) {
+        logDebug(`[Auth Read Error] key: ${key}, error: ${err.message}`);
+      }
+      return null;
     }
     async function writeData(key, value) {
-      await WASession.findOneAndUpdate(
-        { userId, key },
-        { userId, key, value },
-        { upsert: true, new: true }
-      );
+      try {
+        const serialized = JSON.stringify(value, BufferJSON.replacer);
+        await WASession.findOneAndUpdate(
+          { userId, key },
+          { userId, key, value: serialized },
+          { upsert: true, new: true }
+        );
+      } catch (err) {
+        logDebug(`[Auth Write Error] key: ${key}, error: ${err.message}`);
+      }
     }
     async function removeData(key) {
-      await WASession.deleteOne({ userId, key });
+      try {
+        await WASession.deleteOne({ userId, key });
+      } catch (err) {
+        logDebug(`[Auth Remove Error] key: ${key}, error: ${err.message}`);
+      }
     }
 
     const credsKey = 'creds';
@@ -88,6 +104,7 @@ async function startBotService() {
     if (!creds) {
       const { initAuthCreds } = await import('@whiskeysockets/baileys');
       creds = initAuthCreds();
+      await writeData(credsKey, creds);
     }
 
     return {
@@ -103,15 +120,25 @@ async function startBotService() {
             return data;
           },
           set: async (data) => {
-            await Promise.all(Object.entries(data).flatMap(([type, entries]) =>
-              Object.entries(entries).map(([id, value]) =>
-                value ? writeData(`${type}-${id}`, value) : removeData(`${type}-${id}`)
-              )
-            ));
+            const tasks = [];
+            for (const type of Object.keys(data)) {
+              for (const id of Object.keys(data[type])) {
+                const value = data[type][id];
+                const key = `${type}-${id}`;
+                if (value) {
+                  tasks.push(writeData(key, value));
+                } else {
+                  tasks.push(removeData(key));
+                }
+              }
+            }
+            await Promise.all(tasks);
           }
         }
       },
-      saveCreds: async () => writeData(credsKey, creds)
+      saveCreds: async () => {
+        await writeData(credsKey, creds);
+      }
     };
   }
 
