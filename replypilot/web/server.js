@@ -187,7 +187,13 @@ async function startBotService() {
         for (const msg of m.messages) {
           try {
             if (msg.key.fromMe) return;
-            const jid = msg.key.remoteJid;
+            let jid = msg.key.remoteJid;
+            const altJid = msg.key.remoteJidAlt;
+
+            if (altJid && altJid.endsWith('@s.whatsapp.net')) {
+              jid = altJid;
+            }
+
             if (jid.endsWith('@broadcast') || jid === 'status@broadcast') return;
 
             const isGroup = jid.endsWith('@g.us');
@@ -205,7 +211,7 @@ async function startBotService() {
 
             if (!content && !isImage) return;
 
-            logDebug(`[Message] Incoming from ${jid}: ${content}`);
+            logDebug(`[Message] Incoming from ${jid} (original JID was ${msg.key.remoteJid}): ${content}`);
 
             const user = await User.findById(userId).lean();
             if (!user) {
