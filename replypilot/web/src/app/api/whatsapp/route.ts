@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import axios from "axios";
 
-const BOT_SERVICE_URL = "http://localhost:3001";
+const BOT_SERVICE_URL = process.env.BOT_SERVICE_URL || "http://localhost:3001";
 
 export async function GET(req: NextRequest) {
   try {
