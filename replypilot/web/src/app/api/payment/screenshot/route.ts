@@ -26,14 +26,24 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const { User } = await import("@/models/User");
-    const user = await User.findOne({ apiKey });
-    if (!user) {
-      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
-    }
+    const { Profile } = await import("@/models/Profile");
+    let user;
+    let settings;
+    let profile = null;
 
-    const settings = await Settings.findOne({ user: user._id });
-    if (!settings) {
-      return NextResponse.json({ error: "Settings not found" }, { status: 404 });
+    profile = await Profile.findOne({ apiKey }).populate("user");
+    if (profile) {
+      user = profile.user;
+      settings = profile;
+    } else {
+      user = await User.findOne({ apiKey });
+      if (!user) {
+        return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+      }
+      settings = await Settings.findOne({ user: user._id });
+      if (!settings) {
+        return NextResponse.json({ error: "Settings not found" }, { status: 404 });
+      }
     }
 
     // Check if payment verification is enabled
@@ -188,6 +198,7 @@ Rules:
     if (!recipientMatched) {
       await PaymentRecord.create({
         user: user._id,
+        profile: profile ? profile._id : undefined,
         contactPhone,
         contactName: contactName || "",
         transactionId: extracted.transactionId,
@@ -239,6 +250,7 @@ Rules:
 
     await PaymentRecord.create({
       user: user._id,
+      profile: profile ? profile._id : undefined,
       contactPhone,          // WhatsApp number — stored for admin view
       contactName: contactName || "",
       transactionId: extracted.transactionId,

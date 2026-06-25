@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 
 export interface IPaymentRecord extends Document {
   user: mongoose.Types.ObjectId;
+  profile?: mongoose.Types.ObjectId;
   contactPhone: string;
   contactName: string;
   transactionId: string;
@@ -17,6 +18,7 @@ export interface IPaymentRecord extends Document {
 const PaymentRecordSchema = new Schema<IPaymentRecord>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    profile: { type: Schema.Types.ObjectId, ref: "Profile" },
     contactPhone: { type: String, required: true },
     contactName: { type: String, default: "" },
     transactionId: { type: String, required: true },
@@ -36,6 +38,7 @@ const PaymentRecordSchema = new Schema<IPaymentRecord>(
 
 // Index for fast duplicate checks
 PaymentRecordSchema.index({ user: 1, transactionId: 1 }, { unique: true });
+PaymentRecordSchema.index({ profile: 1 });
 
 export const PaymentRecord: Model<IPaymentRecord> =
   mongoose.models.PaymentRecord ||

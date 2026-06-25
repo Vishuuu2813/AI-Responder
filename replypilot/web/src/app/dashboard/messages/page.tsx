@@ -5,18 +5,38 @@ interface Message { _id: string; contactName: string; contactPhone: string; cont
 
 export default function MessagesPage() {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [profiles, setProfiles] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [profileFilter, setProfileFilter] = useState("all");
 
   const fetchMessages = () => {
     setLoading(true);
-    fetch(`/api/messages/incoming?page=${page}&limit=20`).then(r => r.json()).then(d => { setMessages(d.messages || []); setTotal(d.total || 0); setLoading(false); });
+    fetch(`/api/messages/incoming?page=${page}&limit=20&profileId=${profileFilter}`)
+      .then(r => r.json())
+      .then(d => { 
+        setMessages(d.messages || []); 
+        setTotal(d.total || 0); 
+        setLoading(false); 
+      });
   };
 
-  useEffect(() => { fetchMessages(); }, [page]);
+  useEffect(() => {
+    // Load profiles list
+    fetch("/api/profiles")
+      .then(r => r.json())
+      .then(d => {
+        if (d.profiles) setProfiles(d.profiles);
+      })
+      .catch(err => console.error("Error loading profiles:", err));
+  }, []);
+
+  useEffect(() => { 
+    fetchMessages(); 
+  }, [page, profileFilter]);
 
   const filtered = messages.filter(m => {
     const matchesSearch = !search || m.contactName.toLowerCase().includes(search.toLowerCase()) || m.content.toLowerCase().includes(search.toLowerCase());
@@ -34,8 +54,18 @@ export default function MessagesPage() {
       </div>
 
       {/* Filters */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
-        <input className="input-field" placeholder="Search by contact or message..." value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1 }} />
+      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <input className="input-field" placeholder="Search by contact or message..." value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+        
+        {/* Profile Filter Dropdown */}
+        <select className="input-field" value={profileFilter} onChange={e => { setProfileFilter(e.target.value); setPage(1); }} style={{ width: "auto" }}>
+          <option value="all">All Bots / Profiles</option>
+          <option value="legacy">Legacy (No Bot Profile)</option>
+          {profiles.map(p => (
+            <option key={p._id} value={p._id}>🤖 {p.name}</option>
+          ))}
+        </select>
+
         <select className="input-field" value={filter} onChange={e => setFilter(e.target.value)} style={{ width: "auto" }}>
           <option value="all">All Replies</option>
           <option value="ai">AI Replied</option>

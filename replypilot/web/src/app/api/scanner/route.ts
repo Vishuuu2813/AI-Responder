@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth/auth";
 import connectDB from "@/lib/db/connect";
 import { Settings } from "@/models/Settings";
 import { User } from "@/models/User";
+import { Profile } from "@/models/Profile";
 
 // ─── CORS helper ─────────────────────────────────────────────
 function corsHeaders() {
@@ -24,19 +25,24 @@ export async function GET(req: NextRequest) {
     await connectDB();
 
     const apiKey = req.headers.get("x-api-key");
-    let userId: string | null = null;
+    let settings: any = null;
 
     if (apiKey) {
-      const user = await User.findOne({ apiKey });
-      if (!user) return NextResponse.json({ error: "Invalid API key" }, { status: 401, headers: corsHeaders() });
-      userId = user._id.toString();
+      const profile = await Profile.findOne({ apiKey });
+      if (profile) {
+        settings = profile;
+      } else {
+        const user = await User.findOne({ apiKey });
+        if (!user) return NextResponse.json({ error: "Invalid API key" }, { status: 401, headers: corsHeaders() });
+        settings = await Settings.findOne({ user: user._id });
+      }
     } else {
       const session = await auth();
-      userId = session?.user?.id ?? null;
+      const userId = session?.user?.id ?? null;
       if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders() });
+      settings = await Settings.findOne({ user: userId });
     }
 
-    const settings = await Settings.findOne({ user: userId });
     const rawScanners = settings?.ai?.scanners || [];
 
     const scanners = rawScanners

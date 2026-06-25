@@ -2,9 +2,11 @@ import OpenAI from "openai";
 import connectDB from "@/lib/db/connect";
 import { Settings } from "@/models/Settings";
 import { SystemSettings } from "@/models/SystemSettings";
+import { Profile } from "@/models/Profile";
 
 interface GenerateReplyOptions {
   userId: string;
+  profileId?: string;
   message: string;
   contactName: string;
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
@@ -21,9 +23,15 @@ export async function generateAIReply(
 ): Promise<GenerateReplyResult> {
   await connectDB();
 
-  const settings = await Settings.findOne({ user: options.userId });
+  let settings;
+  if (options.profileId) {
+    settings = await Profile.findById(options.profileId);
+  } else {
+    settings = await Settings.findOne({ user: options.userId });
+  }
+
   if (!settings) {
-    throw new Error("User settings not found");
+    throw new Error("Settings not found");
   }
 
   const sysSettings = await SystemSettings.findOne();

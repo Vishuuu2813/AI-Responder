@@ -8,6 +8,7 @@ import { Settings } from "@/models/Settings";
 import { Analytics } from "@/models/Analytics";
 import { Contact } from "@/models/Contact";
 import { User } from "@/models/User";
+import { Profile } from "@/models/Profile";
 import { generateAIReply } from "@/lib/ai/openai";
 import { matchManualRule } from "@/lib/ai/rules-engine";
 import { isWithinBusinessHours } from "@/lib/utils/business-hours";
@@ -33,9 +34,21 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    const user = await User.findOne({ apiKey });
-    if (!user) {
-      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+    let user;
+    let settings: any;
+    let profile: any = null;
+
+    // Try finding profile first
+    profile = await Profile.findOne({ apiKey }).populate("user");
+    if (profile) {
+      user = profile.user;
+      settings = profile;
+    } else {
+      user = await User.findOne({ apiKey });
+      if (!user) {
+        return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+      }
+      settings = await Settings.findOne({ user: user._id });
     }
 
     const body = await req.json();
@@ -45,8 +58,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Get user settings
-    const settings = await Settings.findOne({ user: user._id });
     if (!settings || !settings.isEnabled) {
       return NextResponse.json({ reply: null, reason: "Auto-reply disabled" });
     }
@@ -67,25 +78,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ reply: null, reason: "Contact blocked" });
     }
 
-    // Check business hours
-    const businessHoursCheck = isWithinBusinessHours(settings.businessHours);
-    if (!businessHoursCheck.isOpen) {
-      return NextResponse.json({
-        reply: settings.businessHours.awayMessage,
-        reason: "Outside business hours",
-      });
+    // Check business hours (if present in settings)
+    if (settings.businessHours && settings.businessHours.enabled) {
+      const businessHoursCheck = isWithinBusinessHours(settings.businessHours);
+      if (!businessHoursCheck.isOpen) {
+        return NextResponse.json({
+          reply: settings.businessHours.awayMessage,
+          reason: "Outside business hours",
+        });
+      }
     }
 
     // Get or create conversation
-    let conversation = await Conversation.findOne({
-      user: user._id,
-      contactPhone,
-      source,
-    });
+    const convQuery: any = { contactPhone, source };
+    if (profile) {
+      convQuery.profile = profile._id;
+    } else {
+      convQuery.user = user._id;
+      convQuery.$or = [{ profile: { $exists: false } }, { profile: null }];
+    }
+
+    let conversation = await Conversation.findOne(convQuery);
 
     if (!conversation) {
       conversation = await Conversation.create({
         user: user._id,
+        profile: profile ? profile._id : undefined,
         contactName,
         contactPhone,
         source,
@@ -98,6 +116,7 @@ export async function POST(req: NextRequest) {
     // Save incoming message
     const incomingMessage = await Message.create({
       user: user._id,
+      profile: profile ? profile._id : undefined,
       conversation: conversation._id,
       contactName,
       contactPhone,
@@ -114,8 +133,20 @@ export async function POST(req: NextRequest) {
     let tokensUsed = 0;
     let ruleId: string | undefined;
 
-    // Determine reply based on mode
-    if (settings.replyMode === "manual" || settings.replyMode === "hybrid") {
+    // 1. Check Profile's custom switch-cases (quick replies) first if using profile
+    if (profile && profile.switchCases && profile.switchCases.length > 0) {
+      const trimmedContent = content.trim().toLowerCase();
+      const matchedCase = profile.switchCases.find(
+        (c: any) => c.isActive && c.keyword.trim().toLowerCase() === trimmedContent
+      );
+      if (matchedCase) {
+        reply = matchedCase.reply;
+        replyMode = "manual";
+      }
+    }
+
+    // 2. Determine reply based on mode (if no switch-case match)
+    if (!reply && (settings.replyMode === "manual" || settings.replyMode === "hybrid")) {
       const ruleMatch = await matchManualRule(user._id.toString(), content);
       if (ruleMatch.matched) {
         reply = ruleMatch.reply!;
@@ -128,6 +159,7 @@ export async function POST(req: NextRequest) {
       const history = conversation.context.slice(-settings.ai.memoryMessageCount);
       const aiResult = await generateAIReply({
         userId: user._id.toString(),
+        profileId: profile ? profile._id.toString() : undefined,
         message: content,
         contactName,
         conversationHistory: history,
@@ -226,17 +258,27 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "20");
+    const profileId = searchParams.get("profileId");
     const skip = (page - 1) * limit;
 
     const userId = new mongoose.Types.ObjectId(session.user.id);
+    const query: any = { user: userId };
 
-    const messages = await Message.find({ user: userId })
+    if (profileId && profileId !== "all") {
+      if (profileId === "legacy") {
+        query.$or = [{ profile: { $exists: false } }, { profile: null }];
+      } else {
+        query.profile = new mongoose.Types.ObjectId(profileId);
+      }
+    }
+
+    const messages = await Message.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    const total = await Message.countDocuments({ user: userId });
+    const total = await Message.countDocuments(query);
 
     return NextResponse.json({ messages, total, page, limit });
   } catch (error) {

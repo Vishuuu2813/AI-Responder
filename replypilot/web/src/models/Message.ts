@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 
 export interface IMessage extends Document {
   user: mongoose.Types.ObjectId;
+  profile?: mongoose.Types.ObjectId;
   conversation: mongoose.Types.ObjectId;
   contactName: string;
   contactPhone: string;
@@ -24,6 +25,7 @@ export interface IMessage extends Document {
 const MessageSchema = new Schema<IMessage>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    profile: { type: Schema.Types.ObjectId, ref: "Profile" },
     conversation: { type: Schema.Types.ObjectId, ref: "Conversation" },
     contactName: { type: String, required: true },
     contactPhone: { type: String, required: true },
@@ -44,6 +46,7 @@ const MessageSchema = new Schema<IMessage>(
 );
 
 MessageSchema.index({ user: 1, createdAt: -1 });
+MessageSchema.index({ profile: 1, createdAt: -1 });
 MessageSchema.index({ user: 1, contactPhone: 1 });
 MessageSchema.index({ conversation: 1 });
 
